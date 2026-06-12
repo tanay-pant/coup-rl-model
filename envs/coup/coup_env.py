@@ -15,7 +15,7 @@ def env(render_mode=None):
 
 
 class CoupEnv(AECEnv):
-    metadata = {'render_modes': ['human'], "name": "coup_v0"}
+    metadata = {'render_modes': ['human'], "name": "coup_v0", "is_parallelizable": True}
 
     def __init__(self, render_mode=None):
         super().__init__()
