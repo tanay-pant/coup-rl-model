@@ -1,0 +1,507 @@
+from pettingzoo import AECEnv
+from pettingzoo.utils import wrappers
+from pettingzoo.utils.agent_selector import agent_selector
+from gymnasium.spaces import Discrete, Box, Dict
+import numpy as np
+import random
+
+from .game_logic import GameState, PlayerState, TurnState, Influence, Phase, Role, Action
+
+
+def env(render_mode=None):
+    env = CoupEnv(render_mode=render_mode)
+    env = wrappers.OrderEnforcingWrapper(env)
+    return env
+
+
+class CoupEnv(AECEnv):
+    metadata = {'render_modes': ['human'], "name": "coup_v0"}
+
+    def __init__(self, render_mode=None):
+        super().__init__()
+        self.render_mode = render_mode
+        self.MAX_PLAYERS = 6
+        self.num_players = 3  # Can be adjusted between 3 and 6
+
+        self.possible_agents = [f"player_{i}" for i in range(self.num_players)]
+
+        # 38 Total Discrete Actions
+        self.action_spaces = {
+            agent: Discrete(38) for agent in self.possible_agents
+        }
+
+        # 101-value Observation Array and 38-value Action Mask
+        self.observation_spaces = {
+            agent: Dict({
+                "observation": Box(low=-np.inf, high=np.inf, shape=(101,), dtype=np.float32),
+                "action_mask": Box(low=0, high=1, shape=(38,), dtype=np.int8)
+            })
+            for agent in self.possible_agents
+        }
+
+    def reset(self, seed=None, options=None):
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+
+        self.agents = self.possible_agents[:]
+        self.rewards = {agent: 0 for agent in self.agents}
+        self._cumulative_rewards = {agent: 0 for agent in self.agents}
+        self.terminations = {agent: False for agent in self.agents}
+        self.truncations = {agent: False for agent in self.agents}
+        self.infos = {agent: {} for agent in self.agents}
+
+        # Initialize Game State
+        self.state = GameState(num_players=self.num_players)
+        self.state.setup_base_game()
+        random.shuffle(self.state.deck)
+
+        # Deal Cards
+        for i in range(self.num_players):
+            role1 = self.state.deck.pop()
+            role2 = self.state.deck.pop()
+            self.state.players[i].influence = [
+                Influence(role=role1),
+                Influence(role=role2)
+            ]
+
+        # Set initial turn phase
+        self.state.turn.phase = Phase.START_OF_TURN
+        self.state.turn.active_player = 0
+        self.state.turn.exchange_pool = []
+        self.state.turn.exchange_returns_left = 0
+
+        self._agent_selector = agent_selector(self.agents)
+        self.agent_selection = self._agent_selector.reset()
+
+    def observe(self, agent):
+        """
+        Translates the GameState into a flat 101-value NumPy array for the neural network,
+        and generates the 38-value binary Action Mask.
+        """
+        agent_idx = int(agent.split("_")[1])
+        my_state = self.state.players[agent_idx]
+        obs = []
+
+        obs.append(my_state.cash)
+        obs.append(my_state.influence_count)
+
+        for i in range(2):
+            card_encoding = [0] * 5
+            if i < len(
+                    my_state.influence) and not my_state.influence[i].revealed:
+                role_idx = my_state.influence[i].role.value
+                if role_idx != -1:
+                    card_encoding[role_idx] = 1
+            obs.extend(card_encoding)
+
+        for i in range(self.MAX_PLAYERS):
+            if i == agent_idx:
+                continue
+
+            opp = self.state.players.get(
+                i, PlayerState(cash=0, influence_count=0))
+            obs.append(opp.cash)
+            obs.append(opp.influence_count)
+
+            for j in range(2):
+                card_encoding = [0] * 5
+                if j < len(opp.influence) and opp.influence[j].revealed:
+                    role_idx = opp.influence[j].role.value
+                    if role_idx != -1:
+                        card_encoding[role_idx] = 1
+                obs.extend(card_encoding)
+
+        # Global State (9 values)
+        phase_encoding = [0] * 7
+        current_phase_idx = self.state.turn.phase.value
+        phase_encoding[current_phase_idx] = 1
+        obs.extend(phase_encoding)
+
+        obs.append(
+            self.state.turn.target if self.state.turn.target is not None else -1)
+        obs.append(len(self.state.deck))
+
+        # Exchange Pool (20 values)
+        for i in range(4):
+            card_encoding = [0] * 5
+            if i < len(
+                    self.state.turn.exchange_pool) and self.state.turn.exchange_pool[i] != Role.NONE:
+                role_idx = self.state.turn.exchange_pool[i].value
+                if role_idx != -1:
+                    card_encoding[role_idx] = 1
+            obs.extend(card_encoding)
+
+        obs_vector = np.array(obs, dtype=np.float32)
+
+        action_mask = np.zeros(38, dtype=np.int8)
+
+        if my_state.influence_count == 0:
+            return {"observation": obs_vector, "action_mask": action_mask}
+
+        # BASE TURN ACTIONS
+        if self.state.turn.phase == Phase.START_OF_TURN and self.state.turn.active_player == agent_idx:
+            if my_state.cash >= 10:
+                # Must Coup
+                for i in range(self.num_players):
+                    if i != agent_idx and self.state.players[i].influence_count > 0:
+                        action_mask[16 + i] = 1
+            else:
+                action_mask[0] = 1  # Income
+                action_mask[1] = 1  # Foreign Aid
+                action_mask[2] = 1  # Tax
+                action_mask[3] = 1  # Exchange
+
+                for i in range(self.num_players):
+                    if i != agent_idx and self.state.players[i].influence_count > 0:
+                        action_mask[4 + i] = 1  # Steal
+                        if my_state.cash >= 3:
+                            action_mask[10 + i] = 1  # Assassinate
+                        action_mask[16 + i] = 1  # Coup
+
+        # INTERVENTION ACTIONS (Responses to someone else's move)
+        elif self.state.turn.phase in [Phase.ACTION_RESPONSE, Phase.BLOCK_RESPONSE]:
+            claimer = self.state.turn.active_player if self.state.turn.phase == Phase.ACTION_RESPONSE else self.state.turn.target
+
+            if claimer != agent_idx:
+                action_mask[22] = 1  # Challenge
+                action_mask[23] = 1  # Allow/Pass
+
+            # Blocking Logic
+            if self.state.turn.phase == Phase.ACTION_RESPONSE:
+                if self.state.turn.action == 1:
+                    action_mask[24] = 1  # Duke
+                elif self.state.turn.action in range(10, 16) and self.state.turn.target == agent_idx:
+                    action_mask[27] = 1  # Contessa
+                elif self.state.turn.action in range(4, 10) and self.state.turn.target == agent_idx:
+                    action_mask[25] = 1  # Captain
+                    action_mask[28] = 1  # Ambassador
+
+        # FORCED REVEAL
+        elif self.state.turn.phase == Phase.REVEAL_INFLUENCE and self.state.turn.player_to_reveal == agent_idx:
+            for inf in my_state.influence:
+                if not inf.revealed:
+                    role_idx = inf.role.value
+                    if role_idx != -1:
+                        action_mask[29 + role_idx] = 1
+
+        # EXCHANGE PHASE
+        elif self.state.turn.phase == Phase.EXCHANGE and self.state.turn.active_player == agent_idx:
+            for i in range(len(self.state.turn.exchange_pool)):
+                if self.state.turn.exchange_pool[i] != Role.NONE:
+                    action_mask[34 + i] = 1
+
+        return {"observation": obs_vector, "action_mask": action_mask}
+
+    def step(self, action):
+        """
+        Executes actions, manages state transitions,
+        handles player eliminations, and calculates RL rewards.
+        """
+        if (self.terminations[self.agent_selection] or
+                self.truncations[self.agent_selection]):
+            self._was_dead_step(action)
+            return
+
+        agent_idx = int(self.agent_selection.split("_")[1])
+
+        # Snapshot for rewards
+        pre_step_cash = {
+            i: self.state.players[i].cash for i in range(
+                self.num_players)}
+        pre_step_cards = {
+            i: self.state.players[i].influence_count for i in range(
+                self.num_players)}
+
+        # State Machine Routing
+        phase = self.state.turn.phase
+        if phase == Phase.START_OF_TURN:
+            self._handle_base_action(agent_idx, action)
+        elif phase == Phase.ACTION_RESPONSE:
+            self._handle_action_response(agent_idx, action)
+        elif phase == Phase.BLOCK_RESPONSE:
+            self._handle_block_response(agent_idx, action)
+        elif phase == Phase.REVEAL_INFLUENCE:
+            self._handle_reveal(agent_idx, action)
+        elif phase == Phase.EXCHANGE:
+            self._handle_exchange(agent_idx, action)
+
+        self._check_eliminations_and_victory()
+
+        # Intermediate State-Based Rewards
+        for i in range(self.num_players):
+            agent_str = f"player_{i}"
+            if self.terminations[agent_str] and self.state.players[i].influence_count == 0:
+                continue
+
+            coin_diff = self.state.players[i].cash - pre_step_cash[i]
+            if coin_diff > 0:
+                self.rewards[agent_str] += (coin_diff * 0.01)
+
+            card_diff = self.state.players[i].influence_count - \
+                pre_step_cards[i]
+            if card_diff < 0:
+                self.rewards[agent_str] -= 0.4
+
+        self._accumulate_rewards()
+
+    def _handle_base_action(self, player, action):
+        p_state = self.state.players[player]
+        target = None
+        if action in range(4, 10):
+            target = action - 4
+        elif action in range(10, 16):
+            target = action - 10
+        elif action in range(16, 22):
+            target = action - 16
+
+        if action == 0:  # Income
+            p_state.cash += 1
+            self._next_turn()
+        elif action == 1:  # FA
+            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.action = 1
+            self._open_intervention_window(initiator=player)
+        elif action == 2:  # Tax
+            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.action = 2
+            self._open_intervention_window(initiator=player)
+        elif action == 3:  # Exchange
+            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.action = 3
+            self._open_intervention_window(initiator=player)
+        elif action in range(16, 22):  # Coup
+            p_state.cash -= 7
+            self.state.turn.phase = Phase.REVEAL_INFLUENCE
+            self.state.turn.player_to_reveal = target
+            self.agent_selection = f"player_{target}"
+        elif action in range(10, 16):  # Assassinate
+            p_state.cash -= 3
+            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.action = action
+            self.state.turn.target = target
+            self._open_intervention_window(initiator=player)
+        elif action in range(4, 10):  # Steal
+            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.action = action
+            self.state.turn.target = target
+            self._open_intervention_window(initiator=player)
+
+    def _handle_action_response(self, player, action):
+        if action == 14:  # Allow
+            self._advance_intervention_window()
+            return
+
+        if action in [24, 25, 27, 28]:  # Blocks
+            roles = {
+                24: 'duke',
+                25: 'captain',
+                27: 'contessa',
+                28: 'ambassador'}
+            self.state.turn.phase = Phase.BLOCK_RESPONSE
+            self.state.turn.blocking_role = roles[action]
+            self.state.turn.target = player
+            self._open_intervention_window(initiator=player)
+            return
+
+        if action == 22:  # Challenge
+            self._resolve_challenge(challenger=player)
+            return
+
+    def _handle_block_response(self, player, action):
+        if action == 14:
+            self._advance_intervention_window(block_accepted=True)
+            return
+        if action == 22:
+            self._resolve_challenge(challenger=player, challenging_block=True)
+            return
+
+    def _handle_reveal(self, player, action):
+        roles = {
+            29: Role.DUKE,
+            30: Role.ASSASSIN,
+            31: Role.CAPTAIN,
+            32: Role.AMBASSADOR,
+            33: Role.CONTESSA}
+        role_to_kill = roles.get(action, Role.NONE)
+
+        p_state = self.state.players[player]
+        for inf in p_state.influence:
+            if not inf.revealed and inf.role == role_to_kill:
+                inf.revealed = True
+                p_state.influence_count -= 1
+                break
+
+        self._next_turn()
+
+    def _handle_exchange(self, player, action):
+        pool_idx = action - 34
+        returned_card = self.state.turn.exchange_pool[pool_idx]
+        self.state.turn.exchange_pool[pool_idx] = Role.NONE
+        self.state.deck.append(returned_card)
+        random.shuffle(self.state.deck)
+
+        self.state.turn.exchange_returns_left -= 1
+
+        if self.state.turn.exchange_returns_left == 0:
+            kept_cards = [
+                card for card in self.state.turn.exchange_pool if card != Role.NONE]
+            p_state = self.state.players[player]
+            kept_idx = 0
+            for inf in p_state.influence:
+                if not inf.revealed:
+                    inf.role = kept_cards[kept_idx]
+                    kept_idx += 1
+            self.state.turn.exchange_pool = [Role.NONE] * 4
+            self._next_turn()
+
+    # ==========================================
+    # Turn Rotation Helpers
+    # ==========================================
+
+    def _next_turn(self):
+        self.state.turn.phase = Phase.START_OF_TURN
+        self.state.turn.action = None
+        self.state.turn.target = None
+        self.state.turn.blocking_role = None
+
+        current = self.state.turn.active_player
+        for i in range(1, self.num_players + 1):
+            next_p = (current + i) % self.num_players
+            if self.state.players[next_p].influence_count > 0:
+                self.state.turn.active_player = next_p
+                self.agent_selection = f"player_{next_p}"
+                return
+
+    def _open_intervention_window(self, initiator):
+        self.intervention_queue = []
+        for i in range(self.num_players):
+            if i != initiator and self.state.players[i].influence_count > 0:
+                self.intervention_queue.append(i)
+
+        self._advance_intervention_window()
+
+    def _advance_intervention_window(self, block_accepted=False):
+        if len(self.intervention_queue) > 0:
+            next_responder = self.intervention_queue.pop(0)
+            self.agent_selection = f"player_{next_responder}"
+        else:
+            if not block_accepted:
+                self._resolve_successful_action()
+            else:
+                self._next_turn()
+
+    def _resolve_successful_action(self):
+        action = self.state.turn.action
+        target = self.state.turn.target
+        initiator = self.state.turn.active_player
+        p_state = self.state.players[initiator]
+
+        if action == 1:
+            p_state.cash += 2
+            self._next_turn()
+        elif action == 2:
+            p_state.cash += 3
+            self._next_turn()
+        elif action == 3:
+            active_cards = [
+                inf.role for inf in p_state.influence if not inf.revealed]
+            drawn_cards = [self.state.deck.pop(), self.state.deck.pop()]
+            self.state.turn.exchange_pool = active_cards + drawn_cards
+            self.state.turn.exchange_returns_left = 2
+            self.state.turn.phase = Phase.EXCHANGE
+            self.agent_selection = f"player_{initiator}"
+        elif action in range(4, 10):
+            t_state = self.state.players[target]
+            stolen = min(2, t_state.cash)
+            t_state.cash -= stolen
+            p_state.cash += stolen
+            self._next_turn()
+        elif action in range(10, 16):
+            self.state.turn.phase = Phase.REVEAL_INFLUENCE
+            self.state.turn.player_to_reveal = target
+            self.agent_selection = f"player_{target}"
+
+    # ==========================================
+    # Challenge & Elimination Handlers
+    # ==========================================
+
+    def _resolve_challenge(self, challenger, challenging_block=False):
+        if challenging_block:
+            challenged = self.state.turn.target
+            claimed_role = self.state.turn.blocking_role
+        else:
+            challenged = self.state.turn.active_player
+            claimed_role = self._get_claimed_role(self.state.turn.action)
+
+        challenged_state = self.state.players[challenged]
+
+        has_role = False
+        matching_card_idx = -1
+
+        for i, inf in enumerate(challenged_state.influence):
+            if not inf.revealed and inf.role == claimed_role:
+                has_role = True
+                matching_card_idx = i
+                break
+
+        if has_role:
+            loser = challenger
+            self.state.deck.append(
+                challenged_state.influence[matching_card_idx].role)
+            random.shuffle(self.state.deck)
+            challenged_state.influence[matching_card_idx].role = self.state.deck.pop(
+            )
+
+            if challenging_block:
+                pass
+            else:
+                self._resolve_successful_action()
+        else:
+            loser = challenged
+            if challenging_block:
+                self._resolve_successful_action()
+            else:
+                pass
+
+        self.state.turn.phase = Phase.REVEAL_INFLUENCE
+        self.state.turn.player_to_reveal = loser
+        self.agent_selection = f"player_{loser}"
+
+    def _get_claimed_role(self, action):
+        if action == Action.TAX:
+            return Role.DUKE
+        if action == Action.EXCHANGE:
+            return Role.AMBASSADOR
+        if action == Action.STEAL:
+            return Role.CAPTAIN
+        if action == Action.ASSASSINATE:
+            return Role.ASSASSIN
+        return Role.NONE
+
+    def _check_eliminations_and_victory(self):
+        alive_count = 0
+        winner = None
+
+        for i in range(self.num_players):
+            agent = f"player_{i}"
+            if self.state.players[i].influence_count == 0:
+                if not self.terminations[agent]:
+                    self.terminations[agent] = True
+                    self.rewards[agent] -= 1.0
+            else:
+                alive_count += 1
+                winner = agent
+
+        if alive_count <= 1:
+            if winner and not self.terminations[winner]:
+                self.rewards[winner] += 1.0
+
+            for agent in self.agents:
+                self.terminations[agent] = True
+                self.truncations[agent] = False
+
+    def _accumulate_rewards(self):
+        for agent in self.agents:
+            self._cumulative_rewards[agent] += self.rewards[agent]
+            self.rewards[agent] = 0
