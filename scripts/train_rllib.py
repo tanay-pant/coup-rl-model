@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import ray
 from ray import tune
 from ray.tune.registry import register_env
@@ -9,27 +11,16 @@ import torch.nn as nn
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models import ModelCatalog
 
-# The PettingZoo -> Parallel bridge
-from pettingzoo.utils.conversions import aec_to_parallel
-
-# The Parallel -> RLlib bridge
-from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
-
+from ray.rllib.env.wrappers.pettingzoo_env import PettingZooEnv
 from envs.coup.coup_env import CoupEnv
 
 def env_creator(config):
     """
     RLlib needs a factory function that creates and returns our environment.
-    We initialize our AEC env, convert it to Parallel, and wrap it for RLlib.
+    We pass our dynamic AEC env directly to Ray's native PettingZoo wrapper.
     """
-    # 1. Instantiate base sequential game
     env = CoupEnv()
-    
-    # Convert sequential AEC to Parallel mapping
-    parallel_env = aec_to_parallel(env)
-    
-    # Wrap it in Ray's proprietary MultiAgentEnv format
-    return ParallelPettingZooEnv(parallel_env)
+    return PettingZooEnv(env)
 
 # Register the environment with Ray's global registry so RLlib can find it by name
 register_env("coup_parallel_v0", env_creator)
@@ -51,14 +42,20 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4):
     config = (
         PPOConfig()
         .environment(env=env_name)
+
+        .api_stack(
+            enable_rl_module_and_learner=False,
+            enable_env_runner_and_connector_v2=False,
+        )
         
         # CPU Scaling: How many parallel environment copies to run
-        .rollouts(num_rollout_workers=num_workers)
+        .env_runners(num_env_runners=num_workers)
         
         # GPU / Tensor batching constraints
         .training(
             train_batch_size=4000,
-            sgd_minibatch_size=512,
+            minibatch_size=512,
+            entropy_coeff=0.05,
             model={
                 "custom_model": "coup_mask_model",
             }
@@ -84,20 +81,19 @@ class CoupActionMaskModel(TorchModelV2, nn.Module):
         TorchModelV2.__init__(self, obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
 
-        # 1. The Actor (Policy) Network
-        # 101 inputs -> 256 -> 256 -> 38 raw action logits
+        input_dim = 131 
+
         self.core_network = nn.Sequential(
-            nn.Linear(101, 256),
+            nn.Linear(input_dim, 256),
             nn.ReLU(),
             nn.Linear(256, 256),
             nn.ReLU(),
             nn.Linear(256, num_outputs)
         )
         
-        # 2. The Critic (Value) Network
-        # PPO requires a baseline value prediction to calculate "Advantage"
+        # The Critic (Value) Network
         self.value_branch = nn.Sequential(
-            nn.Linear(101, 256),
+            nn.Linear(input_dim, 256),
             nn.ReLU(),
             nn.Linear(256, 1)
         )
@@ -105,7 +101,7 @@ class CoupActionMaskModel(TorchModelV2, nn.Module):
 
     def forward(self, input_dict, state, seq_lens):
         # A. Extract the tensors (RLlib handles the batching automatically)
-        # Shapes will be [batch_size, 101] and [batch_size, 38]
+        # Shapes will be [batch_size, 131] and [batch_size, 38]
         obs = input_dict["obs"]["observation"]
         action_mask = input_dict["obs"]["action_mask"]
 

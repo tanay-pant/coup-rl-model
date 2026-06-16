@@ -30,10 +30,10 @@ class CoupEnv(AECEnv):
             agent: Discrete(38) for agent in self.possible_agents
         }
 
-        # 101-value Observation Array and 38-value Action Mask
+        # 131-value Observation Array and 38-value Action Mask
         self.observation_spaces = {
             agent: Dict({
-                "observation": Box(low=-np.inf, high=np.inf, shape=(101,), dtype=np.float32),
+                "observation": Box(low=-np.inf, high=np.inf, shape=(131,), dtype=np.float32),
                 "action_mask": Box(low=0, high=1, shape=(38,), dtype=np.int8)
             })
             for agent in self.possible_agents
@@ -49,6 +49,7 @@ class CoupEnv(AECEnv):
         self._cumulative_rewards = {agent: 0 for agent in self.agents}
         self.terminations = {agent: False for agent in self.agents}
         self.truncations = {agent: False for agent in self.agents}
+        self.claims_history = np.zeros((self.MAX_PLAYERS, 5), dtype=np.int32)
         self.infos = {agent: {} for agent in self.agents}
 
         # Initialize Game State
@@ -76,7 +77,7 @@ class CoupEnv(AECEnv):
 
     def observe(self, agent):
         """
-        Translates the GameState into a flat 101-value NumPy array for the neural network,
+        Translates the GameState into a flat 131-value NumPy array for the neural network,
         and generates the 38-value binary Action Mask.
         """
         agent_idx = int(agent.split("_")[1])
@@ -132,6 +133,8 @@ class CoupEnv(AECEnv):
                     card_encoding[role_idx] = 1
             obs.extend(card_encoding)
 
+        obs.extend(self.claims_history.flatten().tolist())
+
         obs_vector = np.array(obs, dtype=np.float32)
 
         action_mask = np.zeros(38, dtype=np.int8)
@@ -157,7 +160,8 @@ class CoupEnv(AECEnv):
                         action_mask[4 + i] = 1  # Steal
                         if my_state.cash >= 3:
                             action_mask[10 + i] = 1  # Assassinate
-                        action_mask[16 + i] = 1  # Coup
+                        if my_state.cash >= 7:
+                            action_mask[16 + i] = 1  # Coup
 
         # INTERVENTION ACTIONS (Responses to someone else's move)
         elif self.state.turn.phase in [Phase.ACTION_RESPONSE, Phase.BLOCK_RESPONSE]:
@@ -255,6 +259,21 @@ class CoupEnv(AECEnv):
         elif action in range(16, 22):
             target = action - 16
 
+        # track claims made by player
+        if action == 2:  # Tax -> Duke
+            self._record_claim(player, Role.DUKE)
+        elif action == 3:  # Exchange -> Ambassador
+            self._record_claim(player, Role.AMBASSADOR)
+        elif action in range(4, 10):  # Steal -> Captain
+            self._record_claim(player, Role.CAPTAIN)
+        elif action in range(10, 16):  # Assassinate -> Assassin
+            self._record_claim(player, Role.ASSASSIN)
+
+        if action in [24, 25, 27, 28]:
+            # Map actions to roles
+            role_map = {24: Role.DUKE, 25: Role.CAPTAIN, 27: Role.CONTESSA, 28: Role.AMBASSADOR}
+            self._record_claim(player, role_map[action])
+
         if action == 0:  # Income
             p_state.cash += 1
             self._next_turn()
@@ -288,7 +307,7 @@ class CoupEnv(AECEnv):
             self._open_intervention_window(initiator=player)
 
     def _handle_action_response(self, player, action):
-        if action == 14:  # Allow
+        if action == 23:  # Allow/Pass
             self._advance_intervention_window()
             return
 
@@ -309,7 +328,7 @@ class CoupEnv(AECEnv):
             return
 
     def _handle_block_response(self, player, action):
-        if action == 14:
+        if action == 23:  # Allow/Pass
             self._advance_intervention_window(block_accepted=True)
             return
         if action == 22:
@@ -332,7 +351,11 @@ class CoupEnv(AECEnv):
                 p_state.influence_count -= 1
                 break
 
-        self._next_turn()
+        if self.state.turn.pending_action:
+            self.state.turn.pending_action = False
+            self._resolve_successful_action()
+        else:
+            self._next_turn()
 
     def _handle_exchange(self, player, action):
         pool_idx = action - 34
@@ -364,6 +387,7 @@ class CoupEnv(AECEnv):
         self.state.turn.action = None
         self.state.turn.target = None
         self.state.turn.blocking_role = None
+        self.state.turn.pending_action = False
 
         current = self.state.turn.active_player
         for i in range(1, self.num_players + 1):
@@ -418,9 +442,12 @@ class CoupEnv(AECEnv):
             p_state.cash += stolen
             self._next_turn()
         elif action in range(10, 16):
-            self.state.turn.phase = Phase.REVEAL_INFLUENCE
-            self.state.turn.player_to_reveal = target
-            self.agent_selection = f"player_{target}"
+            if self.state.players[target].influence_count > 0:
+                self.state.turn.phase = Phase.REVEAL_INFLUENCE
+                self.state.turn.player_to_reveal = target
+                self.agent_selection = f"player_{target}"
+            else:
+                self._next_turn()
 
     # ==========================================
     # Challenge & Elimination Handlers
@@ -453,29 +480,25 @@ class CoupEnv(AECEnv):
             challenged_state.influence[matching_card_idx].role = self.state.deck.pop(
             )
 
-            if challenging_block:
-                pass
-            else:
-                self._resolve_successful_action()
+            if not challenging_block:
+                self.state.turn.pending_action = True
         else:
             loser = challenged
             if challenging_block:
-                self._resolve_successful_action()
-            else:
-                pass
+                self.state.turn.pending_action = True
 
         self.state.turn.phase = Phase.REVEAL_INFLUENCE
         self.state.turn.player_to_reveal = loser
         self.agent_selection = f"player_{loser}"
 
     def _get_claimed_role(self, action):
-        if action == Action.TAX:
+        if action == 2:
             return Role.DUKE
-        if action == Action.EXCHANGE:
+        if action == 3:
             return Role.AMBASSADOR
-        if action == Action.STEAL:
+        if action in range(4, 10):
             return Role.CAPTAIN
-        if action == Action.ASSASSINATE:
+        if action in range(10, 16):
             return Role.ASSASSIN
         return Role.NONE
 
@@ -505,3 +528,13 @@ class CoupEnv(AECEnv):
         for agent in self.agents:
             self._cumulative_rewards[agent] += self.rewards[agent]
             self.rewards[agent] = 0
+
+    def observation_space(self, agent):
+        return self.observation_spaces[agent]
+
+    def action_space(self, agent):
+        return self.action_spaces[agent]
+
+    def _record_claim(self, player_idx, role):
+        if role != Role.NONE:
+            self.claims_history[player_idx][role.value] += 1

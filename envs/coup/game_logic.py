@@ -55,6 +55,7 @@ class TurnState:
     target: int = -1
     blocking_role: Role = Role.NONE
     player_to_reveal: int = -1
+    pending_action: bool = False
 
     # handle the Ambassador exchange phase
     exchange_pool: List[Role] = field(default_factory=lambda: [Role.NONE] * 4)
