@@ -164,15 +164,31 @@ def train_coup():
 
     config = setup_rllib_config()
     
-    if os.path.exists(os.path.join(checkpoint_dir, "rllib_checkpoint.json")):
+    def get_latest_checkpoint(ckpt_dir):
+        if not os.path.exists(ckpt_dir): return None
+        highest_idx = -1
+        ckpt_path = None
+        for cp in os.listdir(ckpt_dir):
+            if cp.startswith("checkpoint_"):
+                try:
+                    idx = int(cp.split("_")[1])
+                    if idx > highest_idx:
+                        highest_idx = idx
+                        ckpt_path = os.path.join(ckpt_dir, cp)
+                except ValueError:
+                    pass
+        return ckpt_path
+
+    latest_ckpt = get_latest_checkpoint(checkpoint_dir)
+    if latest_ckpt:
         from ray.rllib.algorithms.algorithm import Algorithm
-        algo = Algorithm.from_checkpoint(checkpoint_dir)
-        print(f"Resuming training from {checkpoint_dir}...")
+        algo = Algorithm.from_checkpoint(latest_ckpt)
+        print(f"Resuming training from {latest_ckpt}...")
     else:
         algo = config.build_algo()
 
     import csv
-    mode = "a" if os.path.exists(os.path.join(checkpoint_dir, "rllib_checkpoint.json")) else "w"
+    mode = "a" if latest_ckpt else "w"
     log_file = open("training_lstm_log.csv", mode, newline="")
     csv_writer = csv.writer(log_file)
     if mode == "w":
@@ -180,8 +196,8 @@ def train_coup():
 
     print("Starting Multi-Agent PPO LSTM Training on Coup...")
     
-    # do 4,000 iterations of training with PPO and LSTM
-    for i in range(1, 4001):
+    start_iter = algo.iteration if hasattr(algo, 'iteration') else 0
+    for i in range(start_iter + 1, 4001):
         result = algo.train()
         
         mean_reward = result.get("env_runners", {}).get("episode_reward_mean", 

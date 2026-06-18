@@ -43,24 +43,30 @@ def train_pbt():
         max_report_frequency=30 # Only print updates to the terminal every 30 seconds
     )
     
-    tuner = tune.Tuner(
-        "PPO",
-        tune_config=tune.TuneConfig(
-            scheduler=pbt,
-            num_samples=2, # Keep at 2 to avoid crashing the Mac
-        ),
-        run_config=tune.RunConfig(
-            name="coup_pbt_run",
-            storage_path=storage_path,
-            stop={"training_iteration": 4000}, # Stop after 4000 iterations
-            progress_reporter=reporter,
-            checkpoint_config=tune.CheckpointConfig(
-                checkpoint_frequency=1000,
-                checkpoint_at_end=True
+    experiment_path = os.path.join(storage_path, "coup_pbt_run")
+    if tune.Tuner.can_restore(experiment_path):
+        print(f"Resuming RLLIB PBT from {experiment_path}...")
+        tuner = tune.Tuner.restore(experiment_path, trainable="PPO", resume_unfinished=True, resume_errored=True)
+    else:
+        tuner = tune.Tuner(
+            "PPO",
+            tune_config=tune.TuneConfig(
+                scheduler=pbt,
+                num_samples=2, 
             ),
-        ),
-        param_space=config.to_dict()
-    )
+            run_config=tune.RunConfig(
+                name="coup_pbt_run",
+                storage_path=storage_path,
+                stop={"training_iteration": 4000}, 
+                progress_reporter=reporter,
+                checkpoint_config=tune.CheckpointConfig(
+                    checkpoint_frequency=1000,
+                    checkpoint_at_end=True,
+                    num_to_keep=5
+                ),
+            ),
+            param_space=config.to_dict()
+        )
     
     print("Starting Population Based Training (2 Populations)...")
     results = tuner.fit()
