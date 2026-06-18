@@ -54,6 +54,10 @@ class CoupEnv(AECEnv):
         self.action_history = np.zeros((self.MAX_PLAYERS, 7), dtype=np.int32)
         self.infos = {agent: {} for agent in self.agents}
         self.event_log = []
+        
+        self.players_eliminated = 0
+        self.winner_pot = 0.0
+        self.elimination_step = 0.9 / max(1, self.num_players - 2)
 
         # Initialize Game State
         self.state = GameState(num_players=self.num_players)
@@ -352,10 +356,10 @@ class CoupEnv(AECEnv):
 
         if action in [24, 25, 27, 28]:  # Blocks
             roles = {
-                24: 'duke',
-                25: 'captain',
-                27: 'contessa',
-                28: 'ambassador'}
+                24: Role.DUKE,
+                25: Role.CAPTAIN,
+                27: Role.CONTESSA,
+                28: Role.AMBASSADOR}
             self.state.turn.phase = Phase.BLOCK_RESPONSE
             self.state.turn.blocking_role = roles[action]
             self.state.turn.target = player
@@ -452,10 +456,6 @@ class CoupEnv(AECEnv):
             if not block_accepted:
                 self._resolve_successful_action()
             else:
-                blocker = self.state.turn.target
-                claimed_role = self.state.turn.blocking_role
-                b_state = self.state.players[blocker]
-                has_role = any(inf.role == claimed_role and not inf.revealed for inf in b_state.influence)
                 self._next_turn()
 
     def _resolve_successful_action(self):
@@ -559,14 +559,17 @@ class CoupEnv(AECEnv):
             if self.state.players[i].influence_count == 0:
                 if not self.terminations[agent]:
                     self.terminations[agent] = True
-                    self.rewards[agent] -= 1.0
+                    penalty = -1.0 + (self.players_eliminated * self.elimination_step)
+                    self.rewards[agent] += penalty
+                    self.winner_pot += abs(penalty)
+                    self.players_eliminated += 1
             else:
                 alive_count += 1
                 winner = agent
 
         if alive_count <= 1:
             if winner and not self.terminations[winner]:
-                self.rewards[winner] += 1.0
+                self.rewards[winner] += self.winner_pot
 
             for agent in self.agents:
                 self.terminations[agent] = True

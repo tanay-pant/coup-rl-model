@@ -4,19 +4,31 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import ray
 from ray.rllib.algorithms.algorithm import Algorithm
 from envs.coup.coup_env import CoupEnv
-from scripts.train_rllib import setup_rllib_config
+from scripts.train_lstm import setup_rllib_config, CoupActionMaskLSTM
+from ray.rllib.models import ModelCatalog
 import numpy as np
 import random
 
 def evaluate_model():
     ray.init()
-    
     # Load config and algorithm
+    ModelCatalog.register_custom_model("coup_mask_lstm", CoupActionMaskLSTM)
     if len(sys.argv) > 1:
         checkpoint_path = sys.argv[1]
     else:
-        checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_v2'))
-        checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_10000")
+        checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_lstm'))
+        # Search for highest checkpoint
+        checkpoint_path = None
+        if os.path.exists(checkpoint_dir):
+            highest_idx = -1
+            for cp in os.listdir(checkpoint_dir):
+                if cp.startswith("checkpoint_"):
+                    idx = int(cp.split("_")[1])
+                    if idx > highest_idx:
+                        highest_idx = idx
+                        checkpoint_path = os.path.join(checkpoint_dir, cp)
+        if not checkpoint_path:
+            checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_10000")
     
     if not os.path.exists(checkpoint_path):
         print(f"Error: {checkpoint_path} not found.")
@@ -39,6 +51,7 @@ def evaluate_model():
         
         # Force player_0 to be the AI, everyone else is a heuristic
         policy_map = {"player_0": "main_policy"}
+        state_map = {"player_0": algo.get_policy("main_policy").get_initial_state()}
         for p in env.agents:
             if p != "player_0":
                 policy_map[p] = random.choice(["random_policy", "honest_policy", "aggressive_policy"])
@@ -54,11 +67,20 @@ def evaluate_model():
                 action = None
             else:
                 policy_id = policy_map[agent]
-                action = algo.compute_single_action(
-                    observation=obs,
-                    policy_id=policy_id,
-                    explore=True 
-                )
+                if policy_id == "main_policy":
+                    action, state_out, info = algo.compute_single_action(
+                        observation=obs,
+                        state=state_map[agent],
+                        policy_id=policy_id,
+                        explore=True 
+                    )
+                    state_map[agent] = state_out
+                else:
+                    action = algo.compute_single_action(
+                        observation=obs,
+                        policy_id=policy_id,
+                        explore=True 
+                    )
                 
             env.step(action)
             agent_rewards[agent] += reward

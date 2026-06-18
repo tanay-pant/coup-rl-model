@@ -8,7 +8,7 @@ import ray
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.models import ModelCatalog
 
-from scripts.train_rllib import CoupActionMaskModel
+from scripts.train_lstm import CoupActionMaskLSTM
 from envs.coup.coup_env import CoupEnv
 
 def get_action_name(idx):
@@ -60,30 +60,27 @@ def print_board(env):
 
 def main():
     ray.init()
-    ModelCatalog.register_custom_model("coup_mask_model", CoupActionMaskModel)
+    ModelCatalog.register_custom_model("coup_mask_lstm", CoupActionMaskLSTM)
 
-    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_pbt', 'coup_pbt_run'))
+    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_lstm'))
     if not os.path.exists(checkpoint_dir):
-        print(f"No valid checkpoints found at {checkpoint_dir}. Please wait for train_rllib_pbt.py to save one!")
+        print(f"No valid checkpoints found at {checkpoint_dir}. Please wait for train_lstm.py to save one!")
         sys.exit(1)
 
-    # Find the most recent checkpoint across all PBT trials
-    latest_checkpoint = None
+    # Find the most recent checkpoint 
+    load_dir = None
     highest_idx = -1
-    for trial_dir in os.listdir(checkpoint_dir):
-        if trial_dir.startswith("PPO_"):
-            trial_path = os.path.join(checkpoint_dir, trial_dir)
-            if os.path.isdir(trial_path):
-                for cp in os.listdir(trial_path):
-                    if cp.startswith("checkpoint_"):
-                        cp_idx = int(cp.split("_")[-1])
-                        if cp_idx > highest_idx:
-                            highest_idx = cp_idx
-                            latest_checkpoint = os.path.join(trial_path, cp)
+    for cp in os.listdir(checkpoint_dir):
+        if cp.startswith("checkpoint_"):
+            try:
+                cp_idx = int(cp.split("_")[1])
+                if cp_idx > highest_idx:
+                    highest_idx = cp_idx
+                    load_dir = os.path.join(checkpoint_dir, cp)
+            except ValueError:
+                pass
                             
-    if latest_checkpoint:
-        load_dir = latest_checkpoint
-    else:
+    if not load_dir:
         print("No valid checkpoints found.")
         sys.exit(1)
         
@@ -93,6 +90,8 @@ def main():
     
     env = CoupEnv()
     env.reset()
+    
+    state_map = {agent: algo.get_policy("main_policy").get_initial_state() for agent in env.agents if agent != "player_0"}
     
     for agent in env.agent_iter():
         observation, reward, termination, truncation, info = env.last()
@@ -124,10 +123,12 @@ def main():
             env.step(action)
         else:
             # Pass observation to AI
-            action = algo.compute_single_action(
+            action, state_out, info = algo.compute_single_action(
                 observation=observation,
+                state=state_map[agent],
                 policy_id="main_policy" # AI uses the master policy
             )
+            state_map[agent] = state_out
             print(f">>> Player {agent} chose: {get_action_name(action)}")
             env.step(action)
             
