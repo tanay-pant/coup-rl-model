@@ -10,9 +10,28 @@ import torch
 import torch.nn as nn
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models import ModelCatalog
+from ray.rllib.algorithms.callbacks import DefaultCallbacks
+import random
 
 from ray.rllib.env.wrappers.pettingzoo_env import PettingZooEnv
 from envs.coup.coup_env import CoupEnv
+
+from agents.league_policies import RandomHeuristicPolicy, HonestHeuristicPolicy, AggressiveHeuristicPolicy
+
+def policy_mapping_fn(agent_id, episode, worker, **kwargs):
+    if agent_id == "player_0":
+        return "main_policy"
+    r = random.random()
+    if r < 0.2:
+        return "past_policy_1"
+    elif r < 0.4:
+        return "past_policy_2"
+    elif r < 0.6:
+        return "random_policy"
+    elif r < 0.8:
+        return "honest_policy"
+    else:
+        return "aggressive_policy"
 
 def env_creator(config):
     """
@@ -55,7 +74,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4):
         .training(
             train_batch_size=4000,
             minibatch_size=512,
-            entropy_coeff=0.05,
+            entropy_coeff_schedule=[[0, 0.2], [1000000, 0.01]],
             model={
                 "custom_model": "coup_mask_model",
             }
@@ -64,14 +83,15 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4):
         # 3. Multi-Agent Policy Setup
         .multi_agent(
             policies={
-                # We define a single brain called "shared_policy"
-                "shared_policy": PolicySpec(
-                    observation_space=obs_space,
-                    action_space=act_space,
-                )
+                "main_policy": PolicySpec(observation_space=obs_space, action_space=act_space),
+                "past_policy_1": PolicySpec(observation_space=obs_space, action_space=act_space),
+                "past_policy_2": PolicySpec(observation_space=obs_space, action_space=act_space),
+                "random_policy": PolicySpec(policy_class=RandomHeuristicPolicy, observation_space=obs_space, action_space=act_space),
+                "honest_policy": PolicySpec(policy_class=HonestHeuristicPolicy, observation_space=obs_space, action_space=act_space),
+                "aggressive_policy": PolicySpec(policy_class=AggressiveHeuristicPolicy, observation_space=obs_space, action_space=act_space),
             },
-            # We map every player in the game to use this exact same brain
-            policy_mapping_fn=lambda agent_id, episode, worker, **kwargs: "shared_policy"
+            policy_mapping_fn=policy_mapping_fn,
+            policies_to_train=["main_policy"]
         )
     )
     return config
@@ -81,7 +101,7 @@ class CoupActionMaskModel(TorchModelV2, nn.Module):
         TorchModelV2.__init__(self, obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
 
-        input_dim = 131 
+        input_dim = 209 
 
         self.core_network = nn.Sequential(
             nn.Linear(input_dim, 256),
@@ -119,6 +139,14 @@ class CoupActionMaskModel(TorchModelV2, nn.Module):
         # Add the mask to the raw logits
         masked_logits = raw_logits + inf_mask
 
+        # Prevent NaN if action_mask is entirely zeros (e.g. dead players)
+        all_masked = (action_mask.sum(dim=-1, keepdim=True) == 0.0)
+        masked_logits = torch.where(
+            all_masked,
+            torch.zeros_like(masked_logits),
+            masked_logits
+        )
+
         return masked_logits, state
 
     def value_function(self):
@@ -130,18 +158,32 @@ ModelCatalog.register_custom_model("coup_mask_model", CoupActionMaskModel)
 def train_coup():
     ray.init()
 
+    # Setup checkpoint directory
+    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_v2'))
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
     # Build the algorithm from our config (from Chunk 2)
     config = setup_rllib_config()
-    algo = config.build()
+    
+    if os.path.exists(os.path.join(checkpoint_dir, "rllib_checkpoint.json")):
+        from ray.rllib.algorithms.algorithm import Algorithm
+        algo = Algorithm.from_checkpoint(checkpoint_dir)
+        print(f"Resuming training from {checkpoint_dir}...")
+    else:
+        algo = config.build_algo()
 
-    # Setup checkpoint directory
-    checkpoint_dir = "./checkpoints"
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    import csv
+    # Append to log if resuming, otherwise create new
+    mode = "a" if os.path.exists(os.path.join(checkpoint_dir, "rllib_checkpoint.json")) else "w"
+    log_file = open("training_log.csv", mode, newline="")
+    csv_writer = csv.writer(log_file)
+    if mode == "w":
+        csv_writer.writerow(["Iteration", "Mean Reward", "Policy Loss", "Value Loss", "Entropy"])
 
     print("Starting Multi-Agent PPO Training on Coup...")
     
     # The Training Loop
-    for i in range(1, 101):  # Running for 100 iterations as a test
+    for i in range(1, 10001):  # Running for 10,000 iterations as requested
         # algo.train() triggers the rollout workers to play games, 
         # gather batches, and run the PyTorch backpropagation.
         result = algo.train()
@@ -151,13 +193,31 @@ def train_coup():
         mean_reward = result.get("env_runners", {}).get("episode_reward_mean", 
                       result.get("episode_reward_mean", 0.0))
         
-        print(f"Iteration {i}: Mean Reward = {mean_reward:.4f}")
+        # Extract advanced metrics
+        learner_stats = result.get("info", {}).get("learner", {}).get("main_policy", {}).get("learner_stats", {})
+        # Note: If RLlib uses a different dict structure based on Ray version, these might default to 0.0
+        policy_loss = learner_stats.get("policy_loss", 0.0)
+        vf_loss = learner_stats.get("vf_loss", 0.0)
+        entropy = learner_stats.get("entropy", 0.0)
+        
+        print(f"Iteration {i:03d} | Reward: {mean_reward:7.4f} | Policy Loss: {policy_loss:7.4f} | VF Loss: {vf_loss:7.4f} | Entropy: {entropy:7.4f}")
+        csv_writer.writerow([i, mean_reward, policy_loss, vf_loss, entropy])
+        log_file.flush()
 
-        # Save Model Checkpoint every 20 iterations
-        if i % 20 == 0:
-            checkpoint_path = algo.save(checkpoint_dir)
-            print(f"=== Saved Checkpoint at Iteration {i} to: {checkpoint_path} ===")
+        # Save a checkpoint every 100 iterations
+        if i % 100 == 0:
+            current_checkpoint_dir = os.path.join(checkpoint_dir, f"checkpoint_{algo.iteration}")
+            checkpoint_path = algo.save(current_checkpoint_dir)
+            print(f"=== Saved Checkpoint at Iteration {algo.iteration} to: {checkpoint_path} ===")
 
+        if i % 50 == 0:
+            print(f"=== Rotating Policies (Fictitious Self-Play) ===")
+            main_weights = algo.get_policy("main_policy").get_weights()
+            past_1_weights = algo.get_policy("past_policy_1").get_weights()
+            algo.get_policy("past_policy_2").set_weights(past_1_weights)
+            algo.get_policy("past_policy_1").set_weights(main_weights)
+
+    log_file.close()
     print("Training Complete.")
     ray.shutdown()
 

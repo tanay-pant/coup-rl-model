@@ -21,19 +21,19 @@ class CoupEnv(AECEnv):
         super().__init__()
         self.render_mode = render_mode
         self.MAX_PLAYERS = 6
-        self.num_players = 3  # Can be adjusted between 3 and 6
+        self.num_players = 3  # Default value, gets randomized in reset()
 
-        self.possible_agents = [f"player_{i}" for i in range(self.num_players)]
+        self.possible_agents = [f"player_{i}" for i in range(self.MAX_PLAYERS)]
 
         # 38 Total Discrete Actions
         self.action_spaces = {
             agent: Discrete(38) for agent in self.possible_agents
         }
 
-        # 131-value Observation Array and 38-value Action Mask
+        # 209-value Observation Array (includes 10-turn event log) and 38-value Action Mask
         self.observation_spaces = {
             agent: Dict({
-                "observation": Box(low=-np.inf, high=np.inf, shape=(131,), dtype=np.float32),
+                "observation": Box(low=-np.inf, high=np.inf, shape=(209,), dtype=np.float32),
                 "action_mask": Box(low=0, high=1, shape=(38,), dtype=np.int8)
             })
             for agent in self.possible_agents
@@ -44,13 +44,16 @@ class CoupEnv(AECEnv):
             random.seed(seed)
             np.random.seed(seed)
 
-        self.agents = self.possible_agents[:]
+        self.num_players = random.randint(3, self.MAX_PLAYERS)
+        self.agents = self.possible_agents[:self.num_players]
         self.rewards = {agent: 0 for agent in self.agents}
         self._cumulative_rewards = {agent: 0 for agent in self.agents}
         self.terminations = {agent: False for agent in self.agents}
         self.truncations = {agent: False for agent in self.agents}
         self.claims_history = np.zeros((self.MAX_PLAYERS, 5), dtype=np.int32)
+        self.action_history = np.zeros((self.MAX_PLAYERS, 7), dtype=np.int32)
         self.infos = {agent: {} for agent in self.agents}
+        self.event_log = []
 
         # Initialize Game State
         self.state = GameState(num_players=self.num_players)
@@ -96,10 +99,8 @@ class CoupEnv(AECEnv):
                     card_encoding[role_idx] = 1
             obs.extend(card_encoding)
 
-        for i in range(self.MAX_PLAYERS):
-            if i == agent_idx:
-                continue
-
+        for offset in range(1, self.MAX_PLAYERS):
+            i = (agent_idx + offset) % self.MAX_PLAYERS
             opp = self.state.players.get(
                 i, PlayerState(cash=0, influence_count=0))
             obs.append(opp.cash)
@@ -119,9 +120,19 @@ class CoupEnv(AECEnv):
         phase_encoding[current_phase_idx] = 1
         obs.extend(phase_encoding)
 
-        obs.append(
-            self.state.turn.target if self.state.turn.target is not None else -1)
+        if self.state.turn.target is not None:
+            ego_target = (self.state.turn.target - agent_idx) % self.MAX_PLAYERS
+            obs.append(ego_target)
+        else:
+            obs.append(-1)
         obs.append(len(self.state.deck))
+
+        # Active Player (6 values)
+        active_player_encoding = [0] * self.MAX_PLAYERS
+        if self.state.turn.active_player != -1:
+            ego_active = (self.state.turn.active_player - agent_idx) % self.MAX_PLAYERS
+            active_player_encoding[ego_active] = 1
+        obs.extend(active_player_encoding)
 
         # Exchange Pool (20 values)
         for i in range(4):
@@ -133,7 +144,24 @@ class CoupEnv(AECEnv):
                     card_encoding[role_idx] = 1
             obs.extend(card_encoding)
 
-        obs.extend(self.claims_history.flatten().tolist())
+        ego_claims = np.roll(self.claims_history, shift=-agent_idx, axis=0)
+        obs.extend(ego_claims.flatten().tolist())
+
+        # Action History (42 values)
+        ego_actions = np.roll(self.action_history, shift=-agent_idx, axis=0)
+        obs.extend(ego_actions.flatten().tolist())
+
+        # Event Log (30 values: last 10 events [initiator, action, target])
+        recent_events = self.event_log[-10:]
+        for event in recent_events:
+            init = (event[0] - agent_idx) % self.MAX_PLAYERS if event[0] != -1 else -1
+            act = event[1]
+            tgt = (event[2] - agent_idx) % self.MAX_PLAYERS if event[2] != -1 else -1
+            obs.extend([init, act, tgt])
+            
+        # Pad if less than 10 events
+        for _ in range(10 - len(recent_events)):
+            obs.extend([-1, -1, -1])
 
         obs_vector = np.array(obs, dtype=np.float32)
 
@@ -209,13 +237,15 @@ class CoupEnv(AECEnv):
 
         agent_idx = int(self.agent_selection.split("_")[1])
 
-        # Snapshot for rewards
-        pre_step_cash = {
-            i: self.state.players[i].cash for i in range(
-                self.num_players)}
-        pre_step_cards = {
-            i: self.state.players[i].influence_count for i in range(
-                self.num_players)}
+        # Log the event
+        target = -1
+        if action in range(4, 10):
+            target = action - 4
+        elif action in range(10, 16):
+            target = action - 10
+        elif action in range(16, 22):
+            target = action - 16
+        self.event_log.append([agent_idx, action, target])
 
         # State Machine Routing
         phase = self.state.turn.phase
@@ -232,20 +262,11 @@ class CoupEnv(AECEnv):
 
         self._check_eliminations_and_victory()
 
-        # Intermediate State-Based Rewards
+        # Step Penalty to prevent stalling
         for i in range(self.num_players):
             agent_str = f"player_{i}"
-            if self.terminations[agent_str] and self.state.players[i].influence_count == 0:
-                continue
-
-            coin_diff = self.state.players[i].cash - pre_step_cash[i]
-            if coin_diff > 0:
-                self.rewards[agent_str] += (coin_diff * 0.01)
-
-            card_diff = self.state.players[i].influence_count - \
-                pre_step_cards[i]
-            if card_diff < 0:
-                self.rewards[agent_str] -= 0.4
+            if not self.terminations[agent_str] and self.state.players[i].influence_count > 0:
+                self.rewards[agent_str] -= 0.005
 
         self._accumulate_rewards()
 
@@ -273,6 +294,22 @@ class CoupEnv(AECEnv):
             # Map actions to roles
             role_map = {24: Role.DUKE, 25: Role.CAPTAIN, 27: Role.CONTESSA, 28: Role.AMBASSADOR}
             self._record_claim(player, role_map[action])
+
+        # Track action history
+        if action == 0:
+            self.action_history[player][0] += 1
+        elif action == 1:
+            self.action_history[player][1] += 1
+        elif action == 2:
+            self.action_history[player][2] += 1
+        elif action == 3:
+            self.action_history[player][3] += 1
+        elif action in range(4, 10):
+            self.action_history[player][4] += 1
+        elif action in range(10, 16):
+            self.action_history[player][5] += 1
+        elif action in range(16, 22):
+            self.action_history[player][6] += 1
 
         if action == 0:  # Income
             p_state.cash += 1
@@ -413,6 +450,10 @@ class CoupEnv(AECEnv):
             if not block_accepted:
                 self._resolve_successful_action()
             else:
+                blocker = self.state.turn.target
+                claimed_role = self.state.turn.blocking_role
+                b_state = self.state.players[blocker]
+                has_role = any(inf.role == claimed_role and not inf.revealed for inf in b_state.influence)
                 self._next_turn()
 
     def _resolve_successful_action(self):
@@ -421,6 +462,7 @@ class CoupEnv(AECEnv):
         initiator = self.state.turn.active_player
         p_state = self.state.players[initiator]
 
+        claimed_role = self._get_claimed_role(action)
         if action == 1:
             p_state.cash += 2
             self._next_turn()
@@ -474,6 +516,8 @@ class CoupEnv(AECEnv):
 
         if has_role:
             loser = challenger
+            # The challenger called a bluff INCORRECTLY.
+            
             self.state.deck.append(
                 challenged_state.influence[matching_card_idx].role)
             random.shuffle(self.state.deck)
@@ -484,6 +528,8 @@ class CoupEnv(AECEnv):
                 self.state.turn.pending_action = True
         else:
             loser = challenged
+            # The challenger called a bluff CORRECTLY.
+            
             if challenging_block:
                 self.state.turn.pending_action = True
 
