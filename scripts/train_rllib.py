@@ -22,11 +22,13 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     if agent_id == "player_0":
         return "main_policy"
     r = random.random()
-    if r < 0.2:
+    if r < 0.15:
         return "past_policy_1"
-    elif r < 0.4:
+    elif r < 0.3:
         return "past_policy_2"
-    elif r < 0.6:
+    elif r < 0.5:
+        return "exploiter_policy"
+    elif r < 0.65:
         return "random_policy"
     elif r < 0.8:
         return "honest_policy"
@@ -45,7 +47,7 @@ def env_creator(config):
 register_env("coup_parallel_v0", env_creator)
 
 
-def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4):
+def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4, use_pbt=False):
     """
     Configures the PPO algorithm, hardware scaling, and Multi-Agent Policy mapping.
     """
@@ -74,7 +76,8 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4):
         .training(
             train_batch_size=4000,
             minibatch_size=512,
-            entropy_coeff_schedule=[[0, 0.2], [1000000, 0.01]],
+            entropy_coeff_schedule=None if use_pbt else [[0, 0.2], [1000000, 0.01]],
+            entropy_coeff=0.2 if use_pbt else 0.0,
             model={
                 "custom_model": "coup_mask_model",
             }
@@ -84,6 +87,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4):
         .multi_agent(
             policies={
                 "main_policy": PolicySpec(observation_space=obs_space, action_space=act_space),
+                "exploiter_policy": PolicySpec(observation_space=obs_space, action_space=act_space),
                 "past_policy_1": PolicySpec(observation_space=obs_space, action_space=act_space),
                 "past_policy_2": PolicySpec(observation_space=obs_space, action_space=act_space),
                 "random_policy": PolicySpec(policy_class=RandomHeuristicPolicy, observation_space=obs_space, action_space=act_space),
@@ -91,7 +95,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4):
                 "aggressive_policy": PolicySpec(policy_class=AggressiveHeuristicPolicy, observation_space=obs_space, action_space=act_space),
             },
             policy_mapping_fn=policy_mapping_fn,
-            policies_to_train=["main_policy"]
+            policies_to_train=["main_policy", "exploiter_policy"]
         )
     )
     return config

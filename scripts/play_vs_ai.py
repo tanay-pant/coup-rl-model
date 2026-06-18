@@ -62,17 +62,27 @@ def main():
     ray.init()
     ModelCatalog.register_custom_model("coup_mask_model", CoupActionMaskModel)
 
-    checkpoint_dir = os.path.abspath("./checkpoints")
+    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_pbt', 'coup_pbt_run'))
     if not os.path.exists(checkpoint_dir):
-        print("No valid checkpoints found. Please wait for train_rllib.py to save one!")
+        print(f"No valid checkpoints found at {checkpoint_dir}. Please wait for train_rllib_pbt.py to save one!")
         sys.exit(1)
 
-    subdirs = [os.path.join(checkpoint_dir, d) for d in os.listdir(checkpoint_dir) if d.startswith("checkpoint_")]
-    if subdirs:
-        latest_checkpoint = max(subdirs, key=lambda d: int(d.split("_")[-1]))
+    # Find the most recent checkpoint across all PBT trials
+    latest_checkpoint = None
+    highest_idx = -1
+    for trial_dir in os.listdir(checkpoint_dir):
+        if trial_dir.startswith("PPO_"):
+            trial_path = os.path.join(checkpoint_dir, trial_dir)
+            if os.path.isdir(trial_path):
+                for cp in os.listdir(trial_path):
+                    if cp.startswith("checkpoint_"):
+                        cp_idx = int(cp.split("_")[-1])
+                        if cp_idx > highest_idx:
+                            highest_idx = cp_idx
+                            latest_checkpoint = os.path.join(trial_path, cp)
+                            
+    if latest_checkpoint:
         load_dir = latest_checkpoint
-    elif os.path.exists(os.path.join(checkpoint_dir, "rllib_checkpoint.json")):
-        load_dir = checkpoint_dir
     else:
         print("No valid checkpoints found.")
         sys.exit(1)

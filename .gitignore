@@ -2,3 +2,5 @@ venv/
 __pycache__/
 .DS_Store
 checkpoints/
+checkpoints_pbt/
+checkpoints_v2/

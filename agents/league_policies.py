@@ -27,7 +27,7 @@ class RandomHeuristicPolicy(Policy):
                 actions.append(0)
             else:
                 actions.append(int(np.random.choice(legal_actions)))
-        return actions, [], {}
+        return np.array(actions), [], {}
 
     def get_weights(self):
         return {}
@@ -53,7 +53,7 @@ class HonestHeuristicPolicy(RandomHeuristicPolicy):
                     actions.append(int(np.random.choice(safe_moves)))
                 else:
                     actions.append(int(np.random.choice(legal_actions)))
-        return actions, [], {}
+        return np.array(actions), [], {}
 
 class AggressiveHeuristicPolicy(RandomHeuristicPolicy):
     def compute_actions(self, obs_batch, *args, **kwargs):
@@ -73,4 +73,4 @@ class AggressiveHeuristicPolicy(RandomHeuristicPolicy):
                     actions.append(int(np.random.choice(aggro_moves)))
                 else:
                     actions.append(int(np.random.choice(legal_actions)))
-        return actions, [], {}
+        return np.array(actions), [], {}

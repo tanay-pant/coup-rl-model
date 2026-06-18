@@ -196,7 +196,9 @@ class CoupEnv(AECEnv):
             claimer = self.state.turn.active_player if self.state.turn.phase == Phase.ACTION_RESPONSE else self.state.turn.target
 
             if claimer != agent_idx:
-                action_mask[22] = 1  # Challenge
+                # You cannot challenge Foreign Aid (1), you can only block it or allow it!
+                if not (self.state.turn.phase == Phase.ACTION_RESPONSE and self.state.turn.action == 1):
+                    action_mask[22] = 1  # Challenge
                 action_mask[23] = 1  # Allow/Pass
 
             # Blocking Logic
