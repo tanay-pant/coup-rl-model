@@ -47,7 +47,7 @@ def env_creator(config):
 register_env("coup_parallel_v0", env_creator)
 
 
-def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4, use_pbt=False):
+def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False):
     """
     Configures the PPO algorithm, hardware scaling, and Multi-Agent Policy mapping.
     """
@@ -70,7 +70,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4, use_pbt=False
         )
         
         # CPU Scaling: How many parallel environment copies to run
-        .env_runners(num_env_runners=num_workers)
+        .env_runners(num_env_runners=num_workers, num_envs_per_env_runner=10)
         
         # GPU / Tensor batching constraints
         .training(
@@ -187,7 +187,7 @@ def train_coup():
     print("Starting Multi-Agent PPO Training on Coup...")
     
     # The Training Loop
-    for i in range(1, 10001):  # Running for 10,000 iterations as requested
+    for i in range(1, 4001):  # Running for 4,000 iterations as requested
         # algo.train() triggers the rollout workers to play games, 
         # gather batches, and run the PyTorch backpropagation.
         result = algo.train()
@@ -208,8 +208,8 @@ def train_coup():
         csv_writer.writerow([i, mean_reward, policy_loss, vf_loss, entropy])
         log_file.flush()
 
-        # Save a checkpoint every 100 iterations
-        if i % 100 == 0:
+        # Save a checkpoint every 1000 iterations
+        if i % 1000 == 0:
             current_checkpoint_dir = os.path.join(checkpoint_dir, f"checkpoint_{algo.iteration}")
             checkpoint_path = algo.save(current_checkpoint_dir)
             print(f"=== Saved Checkpoint at Iteration {algo.iteration} to: {checkpoint_path} ===")

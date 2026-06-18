@@ -18,14 +18,14 @@ def train_pbt():
     
     # 2 rollout workers per trial. With 2 trials (populations), this is 4 workers total.
     # This keeps the memory usage low enough for a 16GB Mac.
-    config = setup_rllib_config(num_workers=2, use_pbt=True)
+    config = setup_rllib_config(num_workers=3, use_pbt=True)
     
     # The PBT Scheduler manages hyperparameter evolution dynamically
     pbt = PopulationBasedTraining(
         time_attr="training_iteration",
         metric="env_runners/episode_reward_mean",
         mode="max",
-        perturbation_interval=25, # Evaluate and mutate every 25 iterations
+        perturbation_interval=100, # Evaluate and mutate every 100 iterations
         hyperparam_mutations={
             "lr": [1e-5, 5e-5, 1e-4, 3e-4, 5e-4, 1e-3],
             "entropy_coeff": [0.001, 0.01, 0.05, 0.1, 0.2],
@@ -52,10 +52,10 @@ def train_pbt():
         run_config=tune.RunConfig(
             name="coup_pbt_run",
             storage_path=storage_path,
-            stop={"training_iteration": 10000}, # Stop after 10000 iterations
+            stop={"training_iteration": 4000}, # Stop after 4000 iterations
             progress_reporter=reporter,
             checkpoint_config=tune.CheckpointConfig(
-                checkpoint_frequency=2000,
+                checkpoint_frequency=1000,
                 checkpoint_at_end=True
             ),
         ),

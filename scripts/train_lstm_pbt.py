@@ -15,7 +15,7 @@ def train_pbt():
     
     ModelCatalog.register_custom_model("coup_mask_lstm", CoupActionMaskLSTM)
     
-    config = setup_rllib_config(num_workers=2, use_pbt=True)
+    config = setup_rllib_config(num_workers=6, use_pbt=True)
     
     pbt = PopulationBasedTraining(
         time_attr="training_iteration",
@@ -47,10 +47,10 @@ def train_pbt():
         run_config=tune.RunConfig(
             name="coup_lstm_pbt_run",
             storage_path=storage_path,
-            stop={"training_iteration": 10000}, 
+            stop={"training_iteration": 4000}, 
             progress_reporter=reporter,
             checkpoint_config=tune.CheckpointConfig(
-                checkpoint_frequency=100,
+                checkpoint_frequency=1000,
                 checkpoint_at_end=True,
                 num_to_keep=5
             ),

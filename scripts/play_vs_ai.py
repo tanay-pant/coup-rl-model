@@ -1,15 +1,20 @@
 import os
 import sys
-
-# Ensure Python can find our custom modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import ray
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.models import ModelCatalog
 
-from scripts.train_lstm import CoupActionMaskLSTM
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from envs.coup.coup_env import CoupEnv
+from scripts.train_lstm import CoupActionMaskLSTM
+
+# ======================================================================
+# PLAY CONFIGURATION
+# ======================================================================
+# Change this variable to choose which AI model to play against.
+# Valid options: "rllib", "rllib_pbt", "lstm", "lstm_pbt"
+PLAY_MODE = "rllib"
+# ======================================================================
 
 def get_action_name(idx):
     if idx == 0: return "Income"
@@ -58,40 +63,58 @@ def print_board(env):
         
     print("="*45 + "\n")
 
-def main():
-    ray.init()
-    ModelCatalog.register_custom_model("coup_mask_lstm", CoupActionMaskLSTM)
-
-    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_lstm'))
+def get_latest_checkpoint(checkpoint_dir):
     if not os.path.exists(checkpoint_dir):
-        print(f"No valid checkpoints found at {checkpoint_dir}. Please wait for train_lstm.py to save one!")
-        sys.exit(1)
-
-    # Find the most recent checkpoint 
-    load_dir = None
+        return None
     highest_idx = -1
+    checkpoint_path = None
     for cp in os.listdir(checkpoint_dir):
         if cp.startswith("checkpoint_"):
             try:
-                cp_idx = int(cp.split("_")[1])
-                if cp_idx > highest_idx:
-                    highest_idx = cp_idx
-                    load_dir = os.path.join(checkpoint_dir, cp)
+                idx = int(cp.split("_")[1])
+                if idx > highest_idx:
+                    highest_idx = idx
+                    checkpoint_path = os.path.join(checkpoint_dir, cp)
             except ValueError:
-                pass
+                continue
+    return checkpoint_path
+
+def main():
+    ray.init(ignore_reinit_error=True)
+    from scripts.train_lstm import CoupActionMaskLSTM
+    from scripts.train_rllib import CoupActionMaskModel
+    ModelCatalog.register_custom_model("coup_mask_lstm", CoupActionMaskLSTM)
+    ModelCatalog.register_custom_model("coup_mask_model", CoupActionMaskModel)
+    
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    directories = {
+        "rllib": os.path.join(base_dir, "checkpoints_v2"),
+        "rllib_pbt": os.path.join(base_dir, "checkpoints_pbt"),
+        "lstm": os.path.join(base_dir, "checkpoints_lstm"),
+        "lstm_pbt": os.path.join(base_dir, "checkpoints_lstm_pbt")
+    }
+    
+    if PLAY_MODE not in directories:
+        print(f"Invalid PLAY_MODE: {PLAY_MODE}")
+        sys.exit(1)
+
+    checkpoint_dir = directories[PLAY_MODE]
+    load_dir = get_latest_checkpoint(checkpoint_dir)
                             
     if not load_dir:
-        print("No valid checkpoints found.")
+        print(f"No valid checkpoints found for {PLAY_MODE} in {checkpoint_dir}.")
+        print(f"Please train the {PLAY_MODE} model first!")
         sys.exit(1)
         
-    print(f"Loading AI Brain from: {load_dir}")
-    
+    print(f"Loading {PLAY_MODE} AI Brain from: {load_dir}")
     algo = Algorithm.from_checkpoint(load_dir)
     
     env = CoupEnv()
     env.reset()
     
-    state_map = {agent: algo.get_policy("main_policy").get_initial_state() for agent in env.agents if agent != "player_0"}
+    policy = algo.get_policy("main_policy")
+    has_state = hasattr(policy, "get_initial_state") and len(policy.get_initial_state()) > 0
+    state_map = {agent: policy.get_initial_state() if has_state else [] for agent in env.agents if agent != "player_0"}
     
     for agent in env.agent_iter():
         observation, reward, termination, truncation, info = env.last()
@@ -122,13 +145,19 @@ def main():
             
             env.step(action)
         else:
-            # Pass observation to AI
-            action, state_out, info = algo.compute_single_action(
-                observation=observation,
-                state=state_map[agent],
-                policy_id="main_policy" # AI uses the master policy
-            )
-            state_map[agent] = state_out
+            if has_state:
+                action, state_out, info = algo.compute_single_action(
+                    observation=observation,
+                    state=state_map[agent],
+                    policy_id="main_policy" 
+                )
+                state_map[agent] = state_out
+            else:
+                action = algo.compute_single_action(
+                    observation=observation,
+                    policy_id="main_policy" 
+                )
+                
             print(f">>> Player {agent} chose: {get_action_name(action)}")
             env.step(action)
             
@@ -138,6 +167,8 @@ def main():
             winner = "YOU" if i == 0 else f"AI {i}"
             print(f"🏆 WINNER: {winner} 🏆")
             break
+            
+    ray.shutdown()
 
 if __name__ == "__main__":
     main()

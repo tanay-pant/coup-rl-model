@@ -41,7 +41,7 @@ def env_creator(config):
 
 register_env("coup_parallel_v0", env_creator)
 
-def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4, use_pbt=False):
+def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False):
     dummy_env = env_creator({})
     obs_space = dummy_env.observation_space["player_0"]
     act_space = dummy_env.action_space["player_0"]
@@ -53,7 +53,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=4, use_pbt=False
             enable_rl_module_and_learner=False,
             enable_env_runner_and_connector_v2=False,
         )
-        .env_runners(num_env_runners=num_workers)
+        .env_runners(num_env_runners=num_workers, num_envs_per_env_runner=10)
         .training(
             train_batch_size=4000,
             minibatch_size=512,
@@ -180,7 +180,8 @@ def train_coup():
 
     print("Starting Multi-Agent PPO LSTM Training on Coup...")
     
-    for i in range(1, 10001):
+    # do 4,000 iterations of training with PPO and LSTM
+    for i in range(1, 4001):
         result = algo.train()
         
         mean_reward = result.get("env_runners", {}).get("episode_reward_mean", 
