@@ -102,7 +102,8 @@ def evaluate_single_model(name, checkpoint_dir):
                 
             env.step(action)
             agent_rewards[agent] += reward
-            turns += 1
+            if not (termination or truncation) and env.state.turn.phase.value == 1:
+                turns += 1
                 
         if agent_rewards.get("player_0", 0) > 0:
             wins += 1

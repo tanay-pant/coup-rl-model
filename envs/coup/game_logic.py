@@ -6,10 +6,11 @@ from enum import IntEnum
 class Phase(IntEnum):
     WAITING_FOR_PLAYERS = 0
     START_OF_TURN = 1
-    ACTION_RESPONSE = 2
+    ACTION_CHALLENGE = 2
     BLOCK_RESPONSE = 3
     REVEAL_INFLUENCE = 4
     EXCHANGE = 5
+    ACTION_BLOCK = 6
 
 
 class Role(IntEnum):

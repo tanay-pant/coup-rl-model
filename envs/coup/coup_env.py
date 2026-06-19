@@ -75,12 +75,11 @@ class CoupEnv(AECEnv):
 
         # Set initial turn phase
         self.state.turn.phase = Phase.START_OF_TURN
-        self.state.turn.active_player = 0
+        self.state.turn.active_player = random.randint(0, self.num_players - 1)
         self.state.turn.exchange_pool = []
         self.state.turn.exchange_returns_left = 0
 
-        self._agent_selector = agent_selector(self.agents)
-        self.agent_selection = self._agent_selector.reset()
+        self.agent_selection = f"player_{self.state.turn.active_player}"
 
     def observe(self, agent):
         """
@@ -197,24 +196,26 @@ class CoupEnv(AECEnv):
                             action_mask[16 + i] = 1  # Coup
 
         # INTERVENTION ACTIONS (Responses to someone else's move)
-        elif self.state.turn.phase in [Phase.ACTION_RESPONSE, Phase.BLOCK_RESPONSE]:
-            claimer = self.state.turn.active_player if self.state.turn.phase == Phase.ACTION_RESPONSE else self.state.turn.target
+        elif self.state.turn.phase in [Phase.ACTION_CHALLENGE, Phase.ACTION_BLOCK, Phase.BLOCK_RESPONSE]:
+            claimer = self.state.turn.active_player if self.state.turn.phase in [Phase.ACTION_CHALLENGE, Phase.ACTION_BLOCK] else self.state.turn.target
 
             if claimer != agent_idx:
-                # You cannot challenge Foreign Aid (1), you can only block it or allow it!
-                if not (self.state.turn.phase == Phase.ACTION_RESPONSE and self.state.turn.action == 1):
-                    action_mask[22] = 1  # Challenge
                 action_mask[23] = 1  # Allow/Pass
-
-            # Blocking Logic
-            if self.state.turn.phase == Phase.ACTION_RESPONSE:
-                if self.state.turn.action == 1:
-                    action_mask[24] = 1  # Duke
-                elif self.state.turn.action in range(10, 16) and self.state.turn.target == agent_idx:
-                    action_mask[27] = 1  # Contessa
-                elif self.state.turn.action in range(4, 10) and self.state.turn.target == agent_idx:
-                    action_mask[25] = 1  # Captain
-                    action_mask[28] = 1  # Ambassador
+                
+                if self.state.turn.phase == Phase.ACTION_CHALLENGE:
+                    action_mask[22] = 1  # Challenge
+                    
+                elif self.state.turn.phase == Phase.BLOCK_RESPONSE:
+                    action_mask[22] = 1  # Challenge
+                    
+                elif self.state.turn.phase == Phase.ACTION_BLOCK:
+                    if self.state.turn.action == 1:
+                        action_mask[24] = 1  # Duke
+                    elif self.state.turn.action in range(10, 16) and self.state.turn.target == agent_idx:
+                        action_mask[27] = 1  # Contessa
+                    elif self.state.turn.action in range(4, 10) and self.state.turn.target == agent_idx:
+                        action_mask[25] = 1  # Captain
+                        action_mask[28] = 1  # Ambassador
 
         # FORCED REVEAL
         elif self.state.turn.phase == Phase.REVEAL_INFLUENCE and self.state.turn.player_to_reveal == agent_idx:
@@ -258,8 +259,10 @@ class CoupEnv(AECEnv):
         phase = self.state.turn.phase
         if phase == Phase.START_OF_TURN:
             self._handle_base_action(agent_idx, action)
-        elif phase == Phase.ACTION_RESPONSE:
-            self._handle_action_response(agent_idx, action)
+        elif phase == Phase.ACTION_CHALLENGE:
+            self._handle_challenge_response(agent_idx, action)
+        elif phase == Phase.ACTION_BLOCK:
+            self._handle_block_decision(agent_idx, action)
         elif phase == Phase.BLOCK_RESPONSE:
             self._handle_block_response(agent_idx, action)
         elif phase == Phase.REVEAL_INFLUENCE:
@@ -316,17 +319,17 @@ class CoupEnv(AECEnv):
             p_state.cash += 1
             self._next_turn()
         elif action == 1:  # FA
-            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.phase = Phase.ACTION_BLOCK
             self.state.turn.action = 1
-            self._open_intervention_window(initiator=player)
+            self._open_block_window()
         elif action == 2:  # Tax
-            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.phase = Phase.ACTION_CHALLENGE
             self.state.turn.action = 2
-            self._open_intervention_window(initiator=player)
+            self._open_challenge_window(initiator=player)
         elif action == 3:  # Exchange
-            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.phase = Phase.ACTION_CHALLENGE
             self.state.turn.action = 3
-            self._open_intervention_window(initiator=player)
+            self._open_challenge_window(initiator=player)
         elif action in range(16, 22):  # Coup
             p_state.cash -= 7
             self.state.turn.phase = Phase.REVEAL_INFLUENCE
@@ -334,17 +337,25 @@ class CoupEnv(AECEnv):
             self.agent_selection = f"player_{target}"
         elif action in range(10, 16):  # Assassinate
             p_state.cash -= 3
-            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.phase = Phase.ACTION_CHALLENGE
             self.state.turn.action = action
             self.state.turn.target = target
-            self._open_intervention_window(initiator=player)
+            self._open_challenge_window(initiator=player)
         elif action in range(4, 10):  # Steal
-            self.state.turn.phase = Phase.ACTION_RESPONSE
+            self.state.turn.phase = Phase.ACTION_CHALLENGE
             self.state.turn.action = action
             self.state.turn.target = target
-            self._open_intervention_window(initiator=player)
+            self._open_challenge_window(initiator=player)
 
-    def _handle_action_response(self, player, action):
+    def _handle_challenge_response(self, player, action):
+        if action == 23:  # Allow/Pass
+            self._advance_intervention_window()
+            return
+        if action == 22:  # Challenge
+            self._resolve_challenge(challenger=player)
+            return
+
+    def _handle_block_decision(self, player, action):
         if action == 23:  # Allow/Pass
             self._advance_intervention_window()
             return
@@ -358,11 +369,7 @@ class CoupEnv(AECEnv):
             self.state.turn.phase = Phase.BLOCK_RESPONSE
             self.state.turn.blocking_role = roles[action]
             self.state.turn.target = player
-            self._open_intervention_window(initiator=player)
-            return
-
-        if action == 22:  # Challenge
-            self._resolve_challenge(challenger=player)
+            self._open_challenge_window(initiator=player)
             return
 
     def _handle_block_response(self, player, action):
@@ -391,7 +398,11 @@ class CoupEnv(AECEnv):
 
         if self.state.turn.pending_action:
             self.state.turn.pending_action = False
-            self._resolve_successful_action()
+            if self.state.turn.action in [1] + list(range(4, 16)):
+                self.state.turn.phase = Phase.ACTION_BLOCK
+                self._open_block_window()
+            else:
+                self._resolve_successful_action()
         else:
             self._next_turn()
 
@@ -441,23 +452,53 @@ class CoupEnv(AECEnv):
                 self.agent_selection = f"player_{next_p}"
                 return
 
-    def _open_intervention_window(self, initiator):
+    def _open_challenge_window(self, initiator):
         self.intervention_queue = []
         for i in range(self.num_players):
             if i != initiator and self.state.players[i].influence_count > 0:
                 self.intervention_queue.append(i)
-
+                
+        random.shuffle(self.intervention_queue)
         self._advance_intervention_window()
+
+    def _open_block_window(self):
+        self.intervention_queue = []
+        action = self.state.turn.action
+        
+        if action == 1:
+            for i in range(self.num_players):
+                if i != self.state.turn.active_player and self.state.players[i].influence_count > 0:
+                    self.intervention_queue.append(i)
+        elif action in range(4, 16):
+            target = self.state.turn.target
+            if self.state.players[target].influence_count > 0:
+                self.intervention_queue.append(target)
+                
+        random.shuffle(self.intervention_queue)
+        
+        if len(self.intervention_queue) > 0:
+            self._advance_intervention_window()
+        else:
+            self._resolve_successful_action()
 
     def _advance_intervention_window(self, block_accepted=False):
         if len(self.intervention_queue) > 0:
             next_responder = self.intervention_queue.pop(0)
             self.agent_selection = f"player_{next_responder}"
         else:
-            if not block_accepted:
+            if self.state.turn.phase == Phase.ACTION_CHALLENGE:
+                if self.state.turn.action in [1] + list(range(4, 16)):
+                    self.state.turn.phase = Phase.ACTION_BLOCK
+                    self._open_block_window()
+                else:
+                    self._resolve_successful_action()
+            elif self.state.turn.phase == Phase.ACTION_BLOCK:
                 self._resolve_successful_action()
-            else:
-                self._next_turn()
+            elif self.state.turn.phase == Phase.BLOCK_RESPONSE:
+                if not block_accepted:
+                    self._resolve_successful_action()
+                else:
+                    self._next_turn()
 
     def _resolve_successful_action(self):
         action = self.state.turn.action
