@@ -63,7 +63,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
             entropy_coeff=0.2 if use_pbt else 0.0,
             model={
                 "custom_model": "coup_mask_lstm",
-                "max_seq_len": 20, 
+                "max_seq_len": 30, 
             }
         )
         .multi_agent(
