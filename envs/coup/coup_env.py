@@ -138,9 +138,10 @@ class CoupEnv(AECEnv):
         obs.extend(active_player_encoding)
 
         # Exchange Pool (20 values)
+        can_see_exchange = (self.state.turn.active_player == agent_idx) and (self.state.turn.phase == Phase.EXCHANGE)
         for i in range(4):
             card_encoding = [0] * 5
-            if i < len(
+            if can_see_exchange and i < len(
                     self.state.turn.exchange_pool) and self.state.turn.exchange_pool[i] != Role.NONE:
                 role_idx = self.state.turn.exchange_pool[i].value
                 if role_idx != -1:
@@ -398,7 +399,10 @@ class CoupEnv(AECEnv):
 
         if self.state.turn.pending_action:
             self.state.turn.pending_action = False
-            if self.state.turn.action in [1] + list(range(4, 16)):
+            if self.state.turn.resuming_from_failed_block:
+                self.state.turn.resuming_from_failed_block = False
+                self._resolve_successful_action()
+            elif self.state.turn.action in [1] + list(range(4, 16)):
                 self.state.turn.phase = Phase.ACTION_BLOCK
                 self._open_block_window()
             else:
@@ -523,9 +527,10 @@ class CoupEnv(AECEnv):
             self.agent_selection = f"player_{initiator}"
         elif action in range(4, 10):
             t_state = self.state.players[target]
-            stolen = min(2, t_state.cash)
-            t_state.cash -= stolen
-            p_state.cash += stolen
+            if t_state.influence_count > 0:
+                stolen = min(2, t_state.cash)
+                t_state.cash -= stolen
+                p_state.cash += stolen
             self._next_turn()
         elif action in range(10, 16):
             if self.state.players[target].influence_count > 0:
@@ -574,8 +579,13 @@ class CoupEnv(AECEnv):
             loser = challenged
             # The challenger called a bluff CORRECTLY.
             
+            # If the bluffed action was an Assassination, refund the 3 coins!
+            if not challenging_block and self.state.turn.action in range(10, 16):
+                challenged_state.cash += 3
+            
             if challenging_block:
                 self.state.turn.pending_action = True
+                self.state.turn.resuming_from_failed_block = True
 
         self.state.turn.phase = Phase.REVEAL_INFLUENCE
         self.state.turn.player_to_reveal = loser
@@ -599,6 +609,7 @@ class CoupEnv(AECEnv):
         for i in range(self.num_players):
             agent = f"player_{i}"
             if self.state.players[i].influence_count == 0:
+                self.state.players[i].cash = 0
                 if not self.terminations[agent]:
                     self.terminations[agent] = True
                     penalty = -1.0 + (self.players_eliminated * self.elimination_step)

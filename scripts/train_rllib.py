@@ -76,7 +76,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
         .training(
             train_batch_size=6000,
             minibatch_size=600,
-            entropy_coeff_schedule=None if use_pbt else [[0, 0.2], [36000000, 0.01]],
+            entropy_coeff_schedule=None if use_pbt else [[0, 0.2], [60000000, 0.01]],
             entropy_coeff=0.2 if use_pbt else 0.0,
             model={
                 "custom_model": "coup_mask_model",
@@ -200,7 +200,7 @@ def train_coup():
     print("Starting Multi-Agent PPO Training on Coup...")
     
     start_iter = algo.iteration if hasattr(algo, 'iteration') else 0
-    for i in range(start_iter + 1, 6001):
+    for i in range(start_iter + 1, 10001):
         # algo.train() triggers the rollout workers to play games, 
         # gather batches, and run the PyTorch backpropagation.
         result = algo.train()
