@@ -161,7 +161,7 @@ def train_coup():
     ray.init()
 
     # Setup checkpoint directory
-    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_v2'))
+    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_rllib'))
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Build the algorithm from our config (from Chunk 2)

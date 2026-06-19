@@ -13,7 +13,7 @@ from scripts.train_lstm import CoupActionMaskLSTM
 # ======================================================================
 # Change this variable to choose which AI model to play against.
 # Valid options: "rllib", "rllib_pbt", "lstm", "lstm_pbt"
-PLAY_MODE = "lstm"
+PLAY_MODE = "rllib"
 # ======================================================================
 
 def get_action_name(idx):
@@ -89,7 +89,7 @@ def main():
     
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     directories = {
-        "rllib": os.path.join(base_dir, "checkpoints_v2"),
+        "rllib": os.path.join(base_dir, "checkpoints_rllib"),
         "rllib_pbt": os.path.join(base_dir, "checkpoints_pbt"),
         "lstm": os.path.join(base_dir, "checkpoints_lstm"),
         "lstm_pbt": os.path.join(base_dir, "checkpoints_lstm_pbt")

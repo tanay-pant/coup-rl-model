@@ -65,7 +65,7 @@ def main():
     ray.init(ignore_reinit_error=True)
     ModelCatalog.register_custom_model("coup_mask_model", CoupActionMaskModel)
     
-    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_v2'))
+    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_rllib'))
     
     checkpoints = ["checkpoint_1000", "checkpoint_2000", "checkpoint_3000", "checkpoint_4000"]
     

@@ -127,7 +127,7 @@ def main():
     
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     directories = {
-        "rllib": os.path.join(base_dir, "checkpoints_v2"),
+        "rllib": os.path.join(base_dir, "checkpoints_rllib"),
         "rllib_pbt": os.path.join(base_dir, "checkpoints_pbt"),
         "lstm": os.path.join(base_dir, "checkpoints_lstm"),
         "lstm_pbt": os.path.join(base_dir, "checkpoints_lstm_pbt")
