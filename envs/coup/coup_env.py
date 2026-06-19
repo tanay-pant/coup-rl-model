@@ -189,7 +189,8 @@ class CoupEnv(AECEnv):
 
                 for i in range(self.num_players):
                     if i != agent_idx and self.state.players[i].influence_count > 0:
-                        action_mask[4 + i] = 1  # Steal
+                        if self.state.players[i].cash > 0:
+                            action_mask[4 + i] = 1  # Steal
                         if my_state.cash >= 3:
                             action_mask[10 + i] = 1  # Assassinate
                         if my_state.cash >= 7:
