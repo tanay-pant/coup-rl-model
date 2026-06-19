@@ -52,7 +52,7 @@ def train_pbt():
             run_config=tune.RunConfig(
                 name="coup_lstm_pbt_run",
                 storage_path=storage_path,
-                stop={"training_iteration": 4000}, 
+                stop={"training_iteration": 6000}, 
                 progress_reporter=reporter,
                 checkpoint_config=tune.CheckpointConfig(
                     checkpoint_frequency=1000,

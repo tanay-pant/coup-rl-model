@@ -22,18 +22,18 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     if agent_id == "player_0":
         return "main_policy"
     r = random.random()
-    if r < 0.15:
+    if r < 0.4:
+        return "main_policy"
+    elif r < 0.6:
         return "past_policy_1"
-    elif r < 0.3:
-        return "past_policy_2"
-    elif r < 0.5:
-        return "exploiter_policy"
-    elif r < 0.65:
-        return "random_policy"
     elif r < 0.8:
+        return "past_policy_2"
+    elif r < 0.866:
         return "honest_policy"
-    else:
+    elif r < 0.933:
         return "aggressive_policy"
+    else:
+        return "random_policy"
 
 def env_creator(config):
     """
@@ -74,20 +74,18 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
         
         # GPU / Tensor batching constraints
         .training(
-            train_batch_size=4000,
-            minibatch_size=512,
-            entropy_coeff_schedule=None if use_pbt else [[0, 0.2], [1000000, 0.01]],
+            train_batch_size=6000,
+            minibatch_size=600,
+            entropy_coeff_schedule=None if use_pbt else [[0, 0.2], [36000000, 0.01]],
             entropy_coeff=0.2 if use_pbt else 0.0,
             model={
                 "custom_model": "coup_mask_model",
             }
         )
         
-        # 3. Multi-Agent Policy Setup
         .multi_agent(
             policies={
                 "main_policy": PolicySpec(observation_space=obs_space, action_space=act_space),
-                "exploiter_policy": PolicySpec(observation_space=obs_space, action_space=act_space),
                 "past_policy_1": PolicySpec(observation_space=obs_space, action_space=act_space),
                 "past_policy_2": PolicySpec(observation_space=obs_space, action_space=act_space),
                 "random_policy": PolicySpec(policy_class=RandomHeuristicPolicy, observation_space=obs_space, action_space=act_space),
@@ -95,7 +93,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
                 "aggressive_policy": PolicySpec(policy_class=AggressiveHeuristicPolicy, observation_space=obs_space, action_space=act_space),
             },
             policy_mapping_fn=policy_mapping_fn,
-            policies_to_train=["main_policy", "exploiter_policy"]
+            policies_to_train=["main_policy"]
         )
     )
     return config
@@ -202,7 +200,7 @@ def train_coup():
     print("Starting Multi-Agent PPO Training on Coup...")
     
     start_iter = algo.iteration if hasattr(algo, 'iteration') else 0
-    for i in range(start_iter + 1, 4001):
+    for i in range(start_iter + 1, 6001):
         # algo.train() triggers the rollout workers to play games, 
         # gather batches, and run the PyTorch backpropagation.
         result = algo.train()
@@ -232,8 +230,9 @@ def train_coup():
         if i % 50 == 0:
             print(f"=== Rotating Policies (Fictitious Self-Play) ===")
             main_weights = algo.get_policy("main_policy").get_weights()
-            past_1_weights = algo.get_policy("past_policy_1").get_weights()
-            algo.get_policy("past_policy_2").set_weights(past_1_weights)
+            if random.random() < 0.2:
+                past_1_weights = algo.get_policy("past_policy_1").get_weights()
+                algo.get_policy("past_policy_2").set_weights(past_1_weights)
             algo.get_policy("past_policy_1").set_weights(main_weights)
 
     log_file.close()

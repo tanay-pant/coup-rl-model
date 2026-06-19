@@ -13,7 +13,7 @@ from scripts.train_lstm import CoupActionMaskLSTM
 # ======================================================================
 # Change this variable to choose which AI model to play against.
 # Valid options: "rllib", "rllib_pbt", "lstm", "lstm_pbt"
-PLAY_MODE = "rllib"
+PLAY_MODE = "lstm"
 # ======================================================================
 
 def get_action_name(idx):
@@ -68,15 +68,16 @@ def get_latest_checkpoint(checkpoint_dir):
         return None
     highest_idx = -1
     checkpoint_path = None
-    for cp in os.listdir(checkpoint_dir):
-        if cp.startswith("checkpoint_"):
-            try:
-                idx = int(cp.split("_")[1])
-                if idx > highest_idx:
-                    highest_idx = idx
-                    checkpoint_path = os.path.join(checkpoint_dir, cp)
-            except ValueError:
-                continue
+    for root, dirs, files in os.walk(checkpoint_dir):
+        for d in dirs:
+            if d.startswith("checkpoint_"):
+                try:
+                    idx = int(d.split("_")[1])
+                    if idx > highest_idx:
+                        highest_idx = idx
+                        checkpoint_path = os.path.join(root, d)
+                except ValueError:
+                    continue
     return checkpoint_path
 
 def main():
@@ -149,13 +150,15 @@ def main():
                 action, state_out, info = algo.compute_single_action(
                     observation=observation,
                     state=state_map[agent],
-                    policy_id="main_policy" 
+                    policy_id="main_policy",
+                    explore=True
                 )
                 state_map[agent] = state_out
             else:
                 action = algo.compute_single_action(
                     observation=observation,
-                    policy_id="main_policy" 
+                    policy_id="main_policy",
+                    explore=True
                 )
                 
             print(f">>> Player {agent} chose: {get_action_name(action)}")

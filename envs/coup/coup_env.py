@@ -268,12 +268,6 @@ class CoupEnv(AECEnv):
 
         self._check_eliminations_and_victory()
 
-        # Step Penalty to prevent stalling
-        for i in range(self.num_players):
-            agent_str = f"player_{i}"
-            if not self.terminations[agent_str] and self.state.players[i].influence_count > 0:
-                self.rewards[agent_str] -= 0.005
-
         self._accumulate_rewards()
 
     def _handle_base_action(self, player, action):
@@ -426,6 +420,12 @@ class CoupEnv(AECEnv):
     # ==========================================
 
     def _next_turn(self):
+        # Turn penalty to prevent stalling (much safer than step penalty)
+        for i in range(self.num_players):
+            agent_str = f"player_{i}"
+            if not self.terminations[agent_str] and self.state.players[i].influence_count > 0:
+                self.rewards[agent_str] -= 0.001
+
         self.state.turn.phase = Phase.START_OF_TURN
         self.state.turn.action = None
         self.state.turn.target = None

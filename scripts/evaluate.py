@@ -24,15 +24,16 @@ def get_latest_checkpoint(checkpoint_dir):
         return None
     highest_idx = -1
     checkpoint_path = None
-    for cp in os.listdir(checkpoint_dir):
-        if cp.startswith("checkpoint_"):
-            try:
-                idx = int(cp.split("_")[1])
-                if idx > highest_idx:
-                    highest_idx = idx
-                    checkpoint_path = os.path.join(checkpoint_dir, cp)
-            except ValueError:
-                continue
+    for root, dirs, files in os.walk(checkpoint_dir):
+        for d in dirs:
+            if d.startswith("checkpoint_"):
+                try:
+                    idx = int(d.split("_")[1])
+                    if idx > highest_idx:
+                        highest_idx = idx
+                        checkpoint_path = os.path.join(root, d)
+                except ValueError:
+                    continue
     return checkpoint_path
 
 def evaluate_single_model(name, checkpoint_dir):
