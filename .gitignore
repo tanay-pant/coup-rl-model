@@ -4,3 +4,5 @@ __pycache__/
 checkpoints/
 checkpoints_pbt/
 checkpoints_rllib/
+checkpoints_lstm/
+checkpoints_lstm_pbt/
