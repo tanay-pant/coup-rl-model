@@ -45,14 +45,20 @@ def env_creator(config):
 register_env("coup_parallel_v0", env_creator)
 ModelCatalog.register_custom_model("coup_mask_lstm", CoupActionMaskLSTM)
 
-def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False):
+def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False, start_iter=0):
     dummy_env = env_creator({})
     obs_space = dummy_env.observation_space["player_0"]
     act_space = dummy_env.action_space["player_0"]
 
+    start_timestep = start_iter * 6000
+    end_timestep = (start_iter + 10000) * 6000
+
     config = (
         PPOConfig()
-        .environment(env=env_name)
+        .environment(
+            env=env_name,
+            env_config={"render_mode": None}
+        )
         .api_stack(
             enable_rl_module_and_learner=False,
             enable_env_runner_and_connector_v2=False,
@@ -61,11 +67,11 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
         .training(
             train_batch_size=6000,
             minibatch_size=600,
-            # Decaying entropy from 0.05 down to 0.01 over the 60M timesteps (10,000 iterations)
-            entropy_coeff_schedule=[[0, 0.05], [60000000, 0.01]],
+            # Dynamic cyclic schedule: starts at 0.05 for this block, decays to 0.01
+            entropy_coeff_schedule=[[start_timestep, 0.05], [end_timestep, 0.01]],
             model={
                 "custom_model": "coup_mask_lstm",
-                "max_seq_len": 30, 
+                "max_seq_len": 60, 
             }
         )
         .multi_agent(
@@ -96,8 +102,6 @@ def train_coup():
     checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_lstm_advanced'))
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    config = setup_rllib_config()
-    
     def get_latest_checkpoint(ckpt_dir):
         if not os.path.exists(ckpt_dir): return None
         highest_idx = -1
@@ -116,6 +120,12 @@ def train_coup():
     latest_ckpt = get_latest_checkpoint(checkpoint_dir)
     is_new_run = latest_ckpt is None
 
+    start_iter = 0
+    if latest_ckpt:
+        start_iter = int(latest_ckpt.split("_")[-1])
+
+    config = setup_rllib_config(start_iter=start_iter)
+    
     from ray.rllib.algorithms.algorithm import Algorithm
 
     if latest_ckpt:

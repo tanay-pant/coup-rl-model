@@ -15,7 +15,7 @@ from scripts.train_lstm import setup_rllib_config, CoupActionMaskLSTM
 # ======================================================================
 # Change this variable to evaluate a specific model or compare all four.
 # Valid options: "rllib", "rllib_pbt", "lstm", "lstm_pbt", "all"
-EVAL_MODE = "lstm"
+EVAL_MODE = "lstm_advanced"
 NUM_GAMES = 1000
 # ======================================================================
 
@@ -123,11 +123,12 @@ def main():
         "rllib_pbt": os.path.join(base_dir, "checkpoints_pbt"),
         "lstm": os.path.join(base_dir, "checkpoints_lstm_shaped"),
         "lstm_pbt": os.path.join(base_dir, "checkpoints_lstm_pbt"),
-        "lstm_shaped": os.path.join(base_dir, "checkpoints_lstm_shaped")
+        "lstm_shaped": os.path.join(base_dir, "checkpoints_lstm_shaped"),
+        "lstm_advanced": os.path.join(base_dir, "checkpoints_lstm_advanced")
     }
     
     if EVAL_MODE == "all":
-        modes_to_run = ["lstm", "lstm_shaped"]
+        modes_to_run = ["lstm", "lstm_advanced"]
     elif EVAL_MODE in directories:
         modes_to_run = [EVAL_MODE]
     else:

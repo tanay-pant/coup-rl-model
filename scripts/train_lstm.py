@@ -118,8 +118,9 @@ class CoupActionMaskLSTM(TorchModelV2, nn.Module):
         if isinstance(seq_lens, np.ndarray):
             seq_lens = torch.Tensor(seq_lens).int()
             
-        if seq_lens is not None and len(seq_lens) > 0:
+        if seq_lens is not None and len(seq_lens) > 0 and isinstance(seq_lens, torch.Tensor) and seq_lens.dim() > 0:
             max_seq_len = x.shape[0] // seq_lens.shape[0]
+            if max_seq_len == 0: max_seq_len = 1
             x_seq = x.view(seq_lens.shape[0], max_seq_len, -1)
         else:
             x_seq = x.unsqueeze(0)
