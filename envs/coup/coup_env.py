@@ -180,7 +180,7 @@ class CoupEnv(AECEnv):
                 # Must Coup
                 for offset in range(1, self.MAX_PLAYERS):
                     i = (agent_idx + offset) % self.MAX_PLAYERS
-                    if self.state.players[i].influence_count > 0:
+                    if self.state.players.get(i, PlayerState(cash=0, influence_count=0)).influence_count > 0:
                         action_mask[16 + offset - 1] = 1
             else:
                 action_mask[0] = 1  # Income
@@ -190,8 +190,9 @@ class CoupEnv(AECEnv):
 
                 for offset in range(1, self.MAX_PLAYERS):
                     i = (agent_idx + offset) % self.MAX_PLAYERS
-                    if self.state.players[i].influence_count > 0:
-                        if self.state.players[i].cash > 0:
+                    opp_state = self.state.players.get(i, PlayerState(cash=0, influence_count=0))
+                    if opp_state.influence_count > 0:
+                        if opp_state.cash > 0:
                             action_mask[4 + offset - 1] = 1  # Steal from offset 1..5 -> Action 4..8
                         if my_state.cash >= 3:
                             action_mask[10 + offset - 1] = 1  # Assassinate -> Action 10..14
@@ -481,7 +482,7 @@ class CoupEnv(AECEnv):
                     self.intervention_queue.append(i)
         elif action in range(4, 15):
             target = self.state.turn.target
-            if self.state.players[target].influence_count > 0:
+            if self.state.players.get(target, PlayerState(cash=0, influence_count=0)).influence_count > 0:
                 self.intervention_queue.append(target)
                 
         random.shuffle(self.intervention_queue)
@@ -532,14 +533,14 @@ class CoupEnv(AECEnv):
             self.state.turn.phase = Phase.EXCHANGE
             self.agent_selection = f"player_{initiator}"
         elif action in range(4, 9):
-            t_state = self.state.players[target]
+            t_state = self.state.players.get(target, PlayerState(cash=0, influence_count=0))
             if t_state.influence_count > 0:
                 stolen = min(2, t_state.cash)
                 t_state.cash -= stolen
                 p_state.cash += stolen
             self._next_turn()
         elif action in range(10, 15):
-            if self.state.players[target].influence_count > 0:
+            if self.state.players.get(target, PlayerState(cash=0, influence_count=0)).influence_count > 0:
                 self.state.turn.phase = Phase.REVEAL_INFLUENCE
                 self.state.turn.player_to_reveal = target
                 self.agent_selection = f"player_{target}"
