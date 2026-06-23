@@ -6,3 +6,4 @@ checkpoints_pbt/
 checkpoints_rllib/
 checkpoints_lstm/
 checkpoints_lstm_pbt/
+checkpoints_lstm_advanced/
