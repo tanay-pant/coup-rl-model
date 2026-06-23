@@ -13,7 +13,7 @@ from scripts.train_lstm import CoupActionMaskLSTM
 # ======================================================================
 # Change this variable to choose which AI model to play against.
 # Valid options: "rllib", "rllib_pbt", "lstm", "lstm_pbt"
-PLAY_MODE = "rllib"
+PLAY_MODE = "lstm"
 # ======================================================================
 
 def get_action_name(idx):

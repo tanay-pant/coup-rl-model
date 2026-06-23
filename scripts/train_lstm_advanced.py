@@ -61,8 +61,8 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
         .training(
             train_batch_size=6000,
             minibatch_size=600,
-            # Decaying entropy from 0.05 down to 0.01 over the next 30M timesteps (5000 iterations)
-            entropy_coeff_schedule=[[60000000, 0.05], [90000000, 0.01]],
+            # Decaying entropy from 0.05 down to 0.01 over the 60M timesteps (10,000 iterations)
+            entropy_coeff_schedule=[[0, 0.05], [60000000, 0.01]],
             model={
                 "custom_model": "coup_mask_lstm",
                 "max_seq_len": 30, 
@@ -95,8 +95,6 @@ def train_coup():
 
     checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_lstm_advanced'))
     os.makedirs(checkpoint_dir, exist_ok=True)
-    
-    old_checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_lstm'))
 
     config = setup_rllib_config()
     
@@ -115,19 +113,13 @@ def train_coup():
                     pass
         return ckpt_path
 
-    # Try to load from the new shaped directory first
     latest_ckpt = get_latest_checkpoint(checkpoint_dir)
-    is_new_run = False
-    
-    if not latest_ckpt:
-        # If new directory is empty, load from the old unshaped directory (10,000th iteration)
-        latest_ckpt = get_latest_checkpoint(old_checkpoint_dir)
-        is_new_run = True
+    is_new_run = latest_ckpt is None
 
     from ray.rllib.algorithms.algorithm import Algorithm
 
     if latest_ckpt:
-        print(f"Resuming training from {latest_ckpt} with updated config...")
+        print(f"Resuming training from {latest_ckpt}...")
         # To apply our updated config (specifically higher entropy), we instantiate algo from config, then restore weights
         algo = config.build_algo()
         algo.restore(latest_ckpt)
@@ -141,11 +133,10 @@ def train_coup():
     if mode == "w":
         csv_writer.writerow(["Iteration", "Mean Reward", "Policy Loss", "Value Loss", "Entropy"])
 
-    print("Starting Multi-Agent PPO LSTM Training on Coup with Shaped Rewards...")
+    print("Starting Multi-Agent PPO LSTM Training on Coup from Scratch...")
     
-    # We will run for another 10,000 iterations (or 5,000, let's say up to iteration + 5000)
     start_iter = algo.iteration if hasattr(algo, 'iteration') else 0
-    target_iter = start_iter + 5000
+    target_iter = start_iter + 10000
     
     print(f"Starting at iteration {start_iter}, targeting {target_iter}")
 

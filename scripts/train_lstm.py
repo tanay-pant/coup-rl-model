@@ -26,16 +26,12 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     r = random.random()
     if r < 0.4:
         return "main_policy"
-    elif r < 0.6:
+    elif r < 0.5:
         return "past_policy_1"
-    elif r < 0.8:
-        return "past_policy_2"
-    elif r < 0.9:
+    elif r < 0.75:
         return "honest_policy"
-    elif r < 0.95:
-        return "aggressive_policy"
     else:
-        return "random_policy"
+        return "aggressive_policy"
 
 def env_creator(config):
     env = CoupEnv()
@@ -63,7 +59,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
             entropy_coeff=0.2 if use_pbt else 0.0,
             model={
                 "custom_model": "coup_mask_lstm",
-                "max_seq_len": 30, 
+                "max_seq_len": 60, 
             }
         )
         .multi_agent(

@@ -15,26 +15,18 @@ from scripts.train_lstm import setup_rllib_config, CoupActionMaskLSTM
 # ======================================================================
 # Change this variable to evaluate a specific model or compare all four.
 # Valid options: "rllib", "rllib_pbt", "lstm", "lstm_pbt", "all"
-EVAL_MODE = "rllib"
+EVAL_MODE = "lstm"
 NUM_GAMES = 1000
 # ======================================================================
 
-def get_latest_checkpoint(checkpoint_dir):
-    if not os.path.exists(checkpoint_dir):
+def get_latest_checkpoint(ckpt_dir):
+    if not os.path.exists(ckpt_dir):
         return None
-    highest_idx = -1
-    checkpoint_path = None
-    for root, dirs, files in os.walk(checkpoint_dir):
-        for d in dirs:
-            if d.startswith("checkpoint_"):
-                try:
-                    idx = int(d.split("_")[1])
-                    if idx > highest_idx:
-                        highest_idx = idx
-                        checkpoint_path = os.path.join(root, d)
-                except ValueError:
-                    continue
-    return checkpoint_path
+    checkpoints = [d for d in os.listdir(ckpt_dir) if d.startswith("checkpoint_")]
+    if not checkpoints:
+        return None
+    checkpoints.sort(key=lambda x: int(x.split("_")[-1]))
+    return os.path.join(ckpt_dir, checkpoints[-1])
 
 def evaluate_single_model(name, checkpoint_dir):
     checkpoint_path = get_latest_checkpoint(checkpoint_dir)
@@ -129,12 +121,13 @@ def main():
     directories = {
         "rllib": os.path.join(base_dir, "checkpoints_rllib"),
         "rllib_pbt": os.path.join(base_dir, "checkpoints_pbt"),
-        "lstm": os.path.join(base_dir, "checkpoints_lstm"),
-        "lstm_pbt": os.path.join(base_dir, "checkpoints_lstm_pbt")
+        "lstm": os.path.join(base_dir, "checkpoints_lstm_shaped"),
+        "lstm_pbt": os.path.join(base_dir, "checkpoints_lstm_pbt"),
+        "lstm_shaped": os.path.join(base_dir, "checkpoints_lstm_shaped")
     }
     
     if EVAL_MODE == "all":
-        modes_to_run = ["rllib", "rllib_pbt", "lstm", "lstm_pbt"]
+        modes_to_run = ["lstm", "lstm_shaped"]
     elif EVAL_MODE in directories:
         modes_to_run = [EVAL_MODE]
     else:
