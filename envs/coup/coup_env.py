@@ -123,7 +123,7 @@ class CoupEnv(AECEnv):
         phase_encoding[current_phase_idx] = 1
         obs.extend(phase_encoding)
 
-        if self.state.turn.target is not None:
+        if self.state.turn.target is not None and self.state.turn.target != -1:
             ego_target = (self.state.turn.target - agent_idx) % self.MAX_PLAYERS
             obs.append(ego_target)
         else:
@@ -178,23 +178,25 @@ class CoupEnv(AECEnv):
         if self.state.turn.phase == Phase.START_OF_TURN and self.state.turn.active_player == agent_idx:
             if my_state.cash >= 10:
                 # Must Coup
-                for i in range(self.num_players):
-                    if i != agent_idx and self.state.players[i].influence_count > 0:
-                        action_mask[16 + i] = 1
+                for offset in range(1, self.MAX_PLAYERS):
+                    i = (agent_idx + offset) % self.MAX_PLAYERS
+                    if self.state.players[i].influence_count > 0:
+                        action_mask[16 + offset - 1] = 1
             else:
                 action_mask[0] = 1  # Income
                 action_mask[1] = 1  # Foreign Aid
                 action_mask[2] = 1  # Tax
                 action_mask[3] = 1  # Exchange
 
-                for i in range(self.num_players):
-                    if i != agent_idx and self.state.players[i].influence_count > 0:
+                for offset in range(1, self.MAX_PLAYERS):
+                    i = (agent_idx + offset) % self.MAX_PLAYERS
+                    if self.state.players[i].influence_count > 0:
                         if self.state.players[i].cash > 0:
-                            action_mask[4 + i] = 1  # Steal
+                            action_mask[4 + offset - 1] = 1  # Steal from offset 1..5 -> Action 4..8
                         if my_state.cash >= 3:
-                            action_mask[10 + i] = 1  # Assassinate
+                            action_mask[10 + offset - 1] = 1  # Assassinate -> Action 10..14
                         if my_state.cash >= 7:
-                            action_mask[16 + i] = 1  # Coup
+                            action_mask[16 + offset - 1] = 1  # Coup -> Action 16..20
 
         # INTERVENTION ACTIONS (Responses to someone else's move)
         elif self.state.turn.phase in [Phase.ACTION_CHALLENGE, Phase.ACTION_BLOCK, Phase.BLOCK_RESPONSE]:
@@ -212,9 +214,9 @@ class CoupEnv(AECEnv):
                 elif self.state.turn.phase == Phase.ACTION_BLOCK:
                     if self.state.turn.action == 1:
                         action_mask[24] = 1  # Duke
-                    elif self.state.turn.action in range(10, 16) and self.state.turn.target == agent_idx:
+                    elif self.state.turn.action in range(10, 15) and self.state.turn.target == agent_idx:
                         action_mask[27] = 1  # Contessa
-                    elif self.state.turn.action in range(4, 10) and self.state.turn.target == agent_idx:
+                    elif self.state.turn.action in range(4, 9) and self.state.turn.target == agent_idx:
                         action_mask[25] = 1  # Captain
                         action_mask[28] = 1  # Ambassador
 
@@ -244,16 +246,21 @@ class CoupEnv(AECEnv):
             self._was_dead_step(action)
             return
 
+        self._cumulative_rewards[self.agent_selection] = 0
+
         agent_idx = int(self.agent_selection.split("_")[1])
 
         # Log the event
         target = -1
-        if action in range(4, 10):
-            target = action - 4
-        elif action in range(10, 16):
-            target = action - 10
-        elif action in range(16, 22):
-            target = action - 16
+        if action in range(4, 9):
+            offset = action - 4 + 1
+            target = (agent_idx + offset) % self.MAX_PLAYERS
+        elif action in range(10, 15):
+            offset = action - 10 + 1
+            target = (agent_idx + offset) % self.MAX_PLAYERS
+        elif action in range(16, 21):
+            offset = action - 16 + 1
+            target = (agent_idx + offset) % self.MAX_PLAYERS
         self.event_log.append([agent_idx, action, target])
 
         # State Machine Routing
@@ -278,27 +285,25 @@ class CoupEnv(AECEnv):
     def _handle_base_action(self, player, action):
         p_state = self.state.players[player]
         target = None
-        if action in range(4, 10):
-            target = action - 4
-        elif action in range(10, 16):
-            target = action - 10
-        elif action in range(16, 22):
-            target = action - 16
+        if action in range(4, 9):
+            offset = action - 4 + 1
+            target = (player + offset) % self.MAX_PLAYERS
+        elif action in range(10, 15):
+            offset = action - 10 + 1
+            target = (player + offset) % self.MAX_PLAYERS
+        elif action in range(16, 21):
+            offset = action - 16 + 1
+            target = (player + offset) % self.MAX_PLAYERS
 
         # track claims made by player
         if action == 2:  # Tax -> Duke
             self._record_claim(player, Role.DUKE)
         elif action == 3:  # Exchange -> Ambassador
             self._record_claim(player, Role.AMBASSADOR)
-        elif action in range(4, 10):  # Steal -> Captain
+        elif action in range(4, 9):  # Steal -> Captain
             self._record_claim(player, Role.CAPTAIN)
-        elif action in range(10, 16):  # Assassinate -> Assassin
+        elif action in range(10, 15):  # Assassinate -> Assassin
             self._record_claim(player, Role.ASSASSIN)
-
-        if action in [24, 25, 27, 28]:
-            # Map actions to roles
-            role_map = {24: Role.DUKE, 25: Role.CAPTAIN, 27: Role.CONTESSA, 28: Role.AMBASSADOR}
-            self._record_claim(player, role_map[action])
 
         # Track action history
         if action == 0:
@@ -309,11 +314,11 @@ class CoupEnv(AECEnv):
             self.action_history[player][2] += 1
         elif action == 3:
             self.action_history[player][3] += 1
-        elif action in range(4, 10):
+        elif action in range(4, 9):
             self.action_history[player][4] += 1
-        elif action in range(10, 16):
+        elif action in range(10, 15):
             self.action_history[player][5] += 1
-        elif action in range(16, 22):
+        elif action in range(16, 21):
             self.action_history[player][6] += 1
 
         if action == 0:  # Income
@@ -331,18 +336,18 @@ class CoupEnv(AECEnv):
             self.state.turn.phase = Phase.ACTION_CHALLENGE
             self.state.turn.action = 3
             self._open_challenge_window(initiator=player)
-        elif action in range(16, 22):  # Coup
+        elif action in range(16, 21):  # Coup
             p_state.cash -= 7
             self.state.turn.phase = Phase.REVEAL_INFLUENCE
             self.state.turn.player_to_reveal = target
             self.agent_selection = f"player_{target}"
-        elif action in range(10, 16):  # Assassinate
+        elif action in range(10, 15):  # Assassinate
             p_state.cash -= 3
             self.state.turn.phase = Phase.ACTION_CHALLENGE
             self.state.turn.action = action
             self.state.turn.target = target
             self._open_challenge_window(initiator=player)
-        elif action in range(4, 10):  # Steal
+        elif action in range(4, 9):  # Steal
             self.state.turn.phase = Phase.ACTION_CHALLENGE
             self.state.turn.action = action
             self.state.turn.target = target
@@ -367,6 +372,7 @@ class CoupEnv(AECEnv):
                 25: Role.CAPTAIN,
                 27: Role.CONTESSA,
                 28: Role.AMBASSADOR}
+            self._record_claim(player, roles[action])
             self.state.turn.phase = Phase.BLOCK_RESPONSE
             self.state.turn.blocking_role = roles[action]
             self.state.turn.target = player
@@ -402,7 +408,7 @@ class CoupEnv(AECEnv):
             if self.state.turn.resuming_from_failed_block:
                 self.state.turn.resuming_from_failed_block = False
                 self._resolve_successful_action()
-            elif self.state.turn.action in [1] + list(range(4, 16)):
+            elif self.state.turn.action in [1] + list(range(4, 15)):
                 self.state.turn.phase = Phase.ACTION_BLOCK
                 self._open_block_window()
             else:
@@ -443,9 +449,9 @@ class CoupEnv(AECEnv):
                 self.rewards[agent_str] -= 0.001
 
         self.state.turn.phase = Phase.START_OF_TURN
-        self.state.turn.action = None
-        self.state.turn.target = None
-        self.state.turn.blocking_role = None
+        self.state.turn.action = Action.NONE
+        self.state.turn.target = -1
+        self.state.turn.blocking_role = Role.NONE
         self.state.turn.pending_action = False
 
         current = self.state.turn.active_player
@@ -473,7 +479,7 @@ class CoupEnv(AECEnv):
             for i in range(self.num_players):
                 if i != self.state.turn.active_player and self.state.players[i].influence_count > 0:
                     self.intervention_queue.append(i)
-        elif action in range(4, 16):
+        elif action in range(4, 15):
             target = self.state.turn.target
             if self.state.players[target].influence_count > 0:
                 self.intervention_queue.append(target)
@@ -491,7 +497,7 @@ class CoupEnv(AECEnv):
             self.agent_selection = f"player_{next_responder}"
         else:
             if self.state.turn.phase == Phase.ACTION_CHALLENGE:
-                if self.state.turn.action in [1] + list(range(4, 16)):
+                if self.state.turn.action in [1] + list(range(4, 15)):
                     self.state.turn.phase = Phase.ACTION_BLOCK
                     self._open_block_window()
                 else:
@@ -525,14 +531,14 @@ class CoupEnv(AECEnv):
             self.state.turn.exchange_returns_left = 2
             self.state.turn.phase = Phase.EXCHANGE
             self.agent_selection = f"player_{initiator}"
-        elif action in range(4, 10):
+        elif action in range(4, 9):
             t_state = self.state.players[target]
             if t_state.influence_count > 0:
                 stolen = min(2, t_state.cash)
                 t_state.cash -= stolen
                 p_state.cash += stolen
             self._next_turn()
-        elif action in range(10, 16):
+        elif action in range(10, 15):
             if self.state.players[target].influence_count > 0:
                 self.state.turn.phase = Phase.REVEAL_INFLUENCE
                 self.state.turn.player_to_reveal = target
@@ -580,7 +586,7 @@ class CoupEnv(AECEnv):
             # The challenger called a bluff CORRECTLY.
             
             # If the bluffed action was an Assassination, refund the 3 coins!
-            if not challenging_block and self.state.turn.action in range(10, 16):
+            if not challenging_block and self.state.turn.action in range(10, 15):
                 challenged_state.cash += 3
             
             if challenging_block:
@@ -596,9 +602,9 @@ class CoupEnv(AECEnv):
             return Role.DUKE
         if action == 3:
             return Role.AMBASSADOR
-        if action in range(4, 10):
+        if action in range(4, 9):
             return Role.CAPTAIN
-        if action in range(10, 16):
+        if action in range(10, 15):
             return Role.ASSASSIN
         return Role.NONE
 
@@ -632,6 +638,8 @@ class CoupEnv(AECEnv):
         for agent in self.agents:
             self._cumulative_rewards[agent] += self.rewards[agent]
             self.rewards[agent] = 0
+
+
 
     def observation_space(self, agent):
         return self.observation_spaces[agent]
