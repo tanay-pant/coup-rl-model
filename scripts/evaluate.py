@@ -14,9 +14,9 @@ from scripts.train_lstm import setup_rllib_config, CoupActionMaskLSTM
 # EVALUATION CONFIGURATION
 # ======================================================================
 # Change this variable to evaluate a specific model or compare all four.
-# Valid options: "rllib", "rllib_pbt", "lstm", "lstm_pbt", "all"
+# Valid options: "rllib", "rllib_pbt", "lstm", "lstm_pbt", "all", "lstm_advanced"
 EVAL_MODE = "lstm_advanced"
-NUM_GAMES = 1000
+NUM_GAMES = 500
 # ======================================================================
 
 def get_latest_checkpoint(ckpt_dir):
@@ -41,74 +41,94 @@ def evaluate_single_model(name, checkpoint_dir):
         print(f"[{name}] Failed to load checkpoint: {e}")
         return None
     
+    def get_valid_policy(pool):
+        valid = []
+        for p in pool:
+            try:
+                if algo.get_policy(p) is not None:
+                    valid.append(p)
+            except Exception:
+                pass
+        return valid if valid else ["honest_policy"]
+
+    gauntlets = {
+        "Rational": ["rational_policy"],
+        "Aggro": ["terminator_policy", "aggressive_policy"],
+        "Mixed": ["rational_policy", "tracker_policy", "terminator_policy", "coward_policy", "honest_policy"]
+    }
+    
+    results = {}
     env = CoupEnv()
-    wins = 0
-    total_turns = 0
     
-    print(f"[{name}] Starting Tournament ({NUM_GAMES} games)...")
-    
-    for game in range(NUM_GAMES):
-        env.reset()
-        policy_map = {"player_0": "main_policy"}
+    for gauntlet_name, pool in gauntlets.items():
+        valid_pool = get_valid_policy(pool)
+        print(f"[{name}] Starting '{gauntlet_name}' Gauntlet ({NUM_GAMES} games) vs {valid_pool}...")
+        wins = 0
+        total_turns = 0
         
-        # Check if the loaded policy uses RNN states
-        policy = algo.get_policy("main_policy")
-        has_state = hasattr(policy, "get_initial_state") and len(policy.get_initial_state()) > 0
-        state_map = {"player_0": policy.get_initial_state() if has_state else []}
-        
-        for p in env.agents:
-            if p != "player_0":
-                policy_map[p] = random.choice(["random_policy", "honest_policy", "aggressive_policy"])
-                
-        turns = 0
-        agent_rewards = {p: 0 for p in env.agents}
-        
-        for agent in env.agent_iter():
-            obs, reward, termination, truncation, info = env.last()
+        for game in range(NUM_GAMES):
+            env.reset()
+            policy_map = {"player_0": "main_policy"}
             
-            if termination or truncation:
-                action = None
-            else:
-                policy_id = policy_map[agent]
-                if policy_id == "main_policy":
-                    if has_state:
-                        action, state_out, _ = algo.compute_single_action(
-                            observation=obs,
-                            state=state_map[agent],
-                            policy_id=policy_id,
-                            explore=True 
-                        )
-                        state_map[agent] = state_out
+            policy = algo.get_policy("main_policy")
+            has_state = hasattr(policy, "get_initial_state") and len(policy.get_initial_state()) > 0
+            state_map = {"player_0": policy.get_initial_state() if has_state else []}
+            
+            for p in env.agents:
+                if p != "player_0":
+                    policy_map[p] = random.choice(valid_pool)
+                    
+            turns = 0
+            agent_rewards = {p: 0 for p in env.agents}
+            
+            for agent in env.agent_iter():
+                obs, reward, termination, truncation, info = env.last()
+                
+                if termination or truncation:
+                    action = None
+                else:
+                    policy_id = policy_map[agent]
+                    if policy_id == "main_policy":
+                        if has_state:
+                            action, state_out, _ = algo.compute_single_action(
+                                observation=obs,
+                                state=state_map[agent],
+                                policy_id=policy_id,
+                                explore=True 
+                            )
+                            state_map[agent] = state_out
+                        else:
+                            action = algo.compute_single_action(
+                                observation=obs,
+                                policy_id=policy_id,
+                                explore=True 
+                            )
                     else:
                         action = algo.compute_single_action(
                             observation=obs,
                             policy_id=policy_id,
                             explore=True 
                         )
-                else:
-                    action = algo.compute_single_action(
-                        observation=obs,
-                        policy_id=policy_id,
-                        explore=True 
-                    )
+                    
+                env.step(action)
+                agent_rewards[agent] += reward
+                if not (termination or truncation) and env.state.turn.phase.value == 1:
+                    turns += 1
+                    
+            if agent_rewards.get("player_0", 0) > 0:
+                wins += 1
                 
-            env.step(action)
-            agent_rewards[agent] += reward
-            if not (termination or truncation) and env.state.turn.phase.value == 1:
-                turns += 1
-                
-        if agent_rewards.get("player_0", 0) > 0:
-            wins += 1
+            total_turns += turns
             
-        total_turns += turns
+            if (game + 1) % int(NUM_GAMES/5) == 0:
+                print(f"[{name}] [{gauntlet_name}] Played {game+1}/{NUM_GAMES} games... Current Win Rate: {wins/(game+1)*100:.2f}%")
+                
+        win_rate = (wins/NUM_GAMES)*100
+        avg_turns = total_turns/NUM_GAMES
+        results[gauntlet_name] = (win_rate, avg_turns)
         
-        if (game + 1) % int(NUM_GAMES/5) == 0:
-            print(f"[{name}] Played {game+1}/{NUM_GAMES} games... Current Win Rate: {wins/(game+1)*100:.2f}%")
-            
-    win_rate = (wins/NUM_GAMES)*100
-    avg_turns = total_turns/NUM_GAMES
     algo.stop()
-    return win_rate, avg_turns
+    return results
 
 def main():
     ray.init(ignore_reinit_error=True)
@@ -142,14 +162,16 @@ def main():
         if res:
             results[mode] = res
 
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 65)
     print("FINAL EVALUATION RESULTS")
-    print("=" * 50)
-    print(f"{'Model Type':<15} | {'Win Rate':<10} | {'Avg Turns'}")
-    print("-" * 50)
-    for mode, (win_rate, avg_turns) in results.items():
-        print(f"{mode:<15} | {win_rate:>8.2f}% | {avg_turns:>9.1f}")
-    print("=" * 50)
+    print("=" * 65)
+    print(f"{'Model Type':<15} | {'Gauntlet':<15} | {'Win Rate':<10} | {'Avg Turns'}")
+    print("-" * 65)
+    for mode, gauntlet_results in results.items():
+        for gauntlet, (win_rate, avg_turns) in gauntlet_results.items():
+            print(f"{mode:<15} | {gauntlet:<15} | {win_rate:>8.2f}% | {avg_turns:>9.1f}")
+        print("-" * 65)
+    print("=" * 65)
     
     ray.shutdown()
 
