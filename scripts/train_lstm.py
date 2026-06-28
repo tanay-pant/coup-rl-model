@@ -82,16 +82,16 @@ class CoupActionMaskLSTM(TorchModelV2, nn.Module):
         TorchModelV2.__init__(self, obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
 
-        input_dim = 209 
-        self.lstm_state_size = 256
+        input_dim = 214 
+        self.lstm_state_size = 512
 
         self.fc = nn.Sequential(
-            nn.Linear(input_dim, 256),
+            nn.Linear(input_dim, 512),
             nn.ReLU(),
         )
         
         self.lstm = nn.LSTM(
-            input_size=256,
+            input_size=512,
             hidden_size=self.lstm_state_size,
             batch_first=True
         )
@@ -123,7 +123,7 @@ class CoupActionMaskLSTM(TorchModelV2, nn.Module):
             if max_seq_len == 0: max_seq_len = 1
             x_seq = x.view(seq_lens.shape[0], max_seq_len, -1)
         else:
-            x_seq = x.unsqueeze(0)
+            x_seq = x.unsqueeze(1)
 
         h, c = state[0], state[1]
         h = h.unsqueeze(0)
@@ -136,7 +136,7 @@ class CoupActionMaskLSTM(TorchModelV2, nn.Module):
 
         raw_logits = self.action_branch(lstm_out_flat)
 
-        inf_mask = torch.clamp(torch.log(action_mask), min=-1e9)
+        inf_mask = torch.clamp(torch.log(action_mask.float()), min=-1e9)
         masked_logits = raw_logits + inf_mask
 
         all_masked = (action_mask.sum(dim=-1, keepdim=True) == 0.0)

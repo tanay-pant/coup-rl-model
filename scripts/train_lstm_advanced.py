@@ -28,19 +28,19 @@ class CoupTrainingCallback(DefaultCallbacks):
         iteration = result["training_iteration"]
         
         # 1. Base Entropy Schedule (Piecewise interpolation)
-        if iteration <= 1000:
+        if iteration <= 2000:
             base_entropy = 0.20
-        elif iteration <= 12000:
-            fraction = (iteration - 1000) / 11000.0
-            base_entropy = 0.20 - (0.14 * fraction)
+        elif iteration <= 30000:
+            fraction = (iteration - 2000) / 28000.0
+            base_entropy = 0.20 - (0.15 * fraction)
         else:
-            fraction = (iteration - 12000) / 8000.0
-            base_entropy = 0.06 - (0.05 * fraction)
+            fraction = (iteration - 30000) / 20000.0
+            base_entropy = 0.05 - (0.04 * fraction)
             base_entropy = max(0.01, base_entropy)
             
         # 2. Entropy Micro-bumps (FSP Rotation boundaries)
         bump = 0.0
-        if iteration > 12000:
+        if iteration > 30000:
             cycles_since_rotation = iteration % 100
             if cycles_since_rotation < 25:
                 bump_fraction = 1.0 - (cycles_since_rotation / 25.0)
@@ -49,7 +49,7 @@ class CoupTrainingCallback(DefaultCallbacks):
         final_entropy = base_entropy + bump
         
         # 3. Clip Param schedule
-        clip_val = 0.3 if iteration <= 12000 else 0.15
+        clip_val = 0.3 if iteration <= 30000 else 0.15
         if bump > 0.0:
             clip_val = 0.25
         
@@ -94,7 +94,7 @@ class CoupTrainingCallback(DefaultCallbacks):
         if "grad_gnorm" in learner_stats:
             if "custom_metrics" not in result:
                 result["custom_metrics"] = {}
-            result["custom_metrics"]["fsp_cycle"] = iteration % (100 if iteration > 12000 else 50)
+            result["custom_metrics"]["fsp_cycle"] = iteration % (100 if iteration > 30000 else 50)
             result["custom_metrics"]["grad_gnorm"] = learner_stats["grad_gnorm"]
 
 def policy_mapping_fn(agent_id, episode, worker, **kwargs):
@@ -103,9 +103,9 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
         
     iteration = worker.global_vars.get("training_iteration", 0) if worker and hasattr(worker, "global_vars") else 0
     
-    # Decay heuristics from 20% to 5% by iteration 12000
-    if iteration <= 12000:
-        heuristic_prob = 0.20 - (0.15 * (iteration / 12000.0))
+    # Decay heuristics from 20% to 5% by iteration 25000
+    if iteration <= 25000:
+        heuristic_prob = 0.20 - (0.15 * (iteration / 25000.0))
     else:
         heuristic_prob = 0.05
         
@@ -169,8 +169,8 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
             lr_schedule=[
                 [0, 1e-4],
                 [6000000, 1e-4],
-                [72000000, 5e-5],
-                [120000000, 1e-5]
+                [150000000, 5e-5],
+                [300000000, 1e-5]
             ],
             model={
                 "custom_model": "coup_mask_lstm",
@@ -256,7 +256,7 @@ def train_coup():
     print("Starting Multi-Agent PPO LSTM Training on Coup from Scratch...")
     
     start_iter = algo.iteration if hasattr(algo, 'iteration') else 0
-    target_iter = 20000
+    target_iter = 50000
     
     print(f"Starting at iteration {start_iter}, targeting {target_iter}")
 
@@ -275,17 +275,17 @@ def train_coup():
         csv_writer.writerow([i, mean_reward, policy_loss, vf_loss, entropy])
         log_file.flush()
 
-        if i % 1000 == 0:
+        if i % 2000 == 0:
             current_checkpoint_dir = os.path.join(checkpoint_dir, f"checkpoint_{algo.iteration}")
             checkpoint_path = algo.save(current_checkpoint_dir)
             print(f"=== Saved Checkpoint at Iteration {algo.iteration} to: {checkpoint_path} ===")
 
-        rotation_period = 100 if i > 12000 else 50
+        rotation_period = 100 if i > 30000 else 50
         if i % rotation_period == 0:
             print(f"=== Rotating Policies (Fictitious Self-Play) ===")
             main_weights = algo.get_policy("main_policy").get_weights()
             
-            if i <= 1000:
+            if i <= 2000:
                 # Warmup phase: Pure trailing window to seed anchors without garbage
                 algo.get_policy("past_policy_10").set_weights(algo.get_policy("past_policy_9").get_weights())
                 algo.get_policy("past_policy_9").set_weights(algo.get_policy("past_policy_8").get_weights())
@@ -296,11 +296,11 @@ def train_coup():
             else:
                 # Post-warmup: Immutable Anchors and Probabilistic Medium Anchors
                 # Freeze specific anchors permanently at exact milestones
-                if i == 5000:
-                    algo.get_policy("past_policy_8").set_weights(main_weights)
                 if i == 10000:
+                    algo.get_policy("past_policy_8").set_weights(main_weights)
+                if i == 25000:
                     algo.get_policy("past_policy_9").set_weights(main_weights)
-                if i == 15000:
+                if i == 40000:
                     algo.get_policy("past_policy_10").set_weights(main_weights)
                     
                 # Medium-term probabilistic anchors

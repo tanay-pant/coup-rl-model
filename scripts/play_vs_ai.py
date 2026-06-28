@@ -16,14 +16,21 @@ from scripts.train_lstm import CoupActionMaskLSTM
 PLAY_MODE = "lstm_advanced"
 # ======================================================================
 
-def get_action_name(idx):
+def get_target_name(target_idx):
+    if target_idx == 0:
+        return "You"
+    return f"AI {target_idx}"
+
+def get_action_name(idx, agent_idx):
     if idx == 0: return "Income"
     if idx == 1: return "Foreign Aid"
     if idx == 2: return "Tax"
     if idx == 3: return "Exchange"
-    if 4 <= idx <= 9: return f"Steal from Player {idx - 4}"
-    if 10 <= idx <= 15: return f"Assassinate Player {idx - 10}"
-    if 16 <= idx <= 21: return f"Coup Player {idx - 16}"
+    
+    MAX_PLAYERS = 6
+    if 4 <= idx <= 9: return f"Steal from {get_target_name((agent_idx + (idx - 4 + 1)) % MAX_PLAYERS)}"
+    if 10 <= idx <= 15: return f"Assassinate {get_target_name((agent_idx + (idx - 10 + 1)) % MAX_PLAYERS)}"
+    if 16 <= idx <= 21: return f"Coup {get_target_name((agent_idx + (idx - 16 + 1)) % MAX_PLAYERS)}"
     if idx == 22: return "Challenge"
     if idx == 23: return "Allow"
     
@@ -133,7 +140,7 @@ def main():
             print(f"--- IT IS YOUR TURN ---")
             
             for v in valid_actions:
-                print(f"[{v:2d}] {get_action_name(v)}")
+                print(f"[{v:2d}] {get_action_name(v, 0)}")
             
             action = None
             while action not in valid_actions:
@@ -162,7 +169,9 @@ def main():
                     explore=True
                 )
                 
-            print(f">>> Player {agent} chose: {get_action_name(action)}")
+            agent_idx = int(agent.split('_')[1])
+            agent_display_name = "You" if agent == "player_0" else f"AI {agent_idx}"
+            print(f">>> {agent_display_name} chose: {get_action_name(action, agent_idx)}")
             env.step(action)
             
     print("\nGAME OVER!")

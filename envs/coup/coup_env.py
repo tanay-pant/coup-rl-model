@@ -31,10 +31,10 @@ class CoupEnv(AECEnv):
             agent: Discrete(38) for agent in self.possible_agents
         }
 
-        # 209-value Observation Array (includes 10-turn event log) and 38-value Action Mask
+        # 214-value Observation Array (includes 10-turn event log and global dead counts) and 38-value Action Mask
         self.observation_spaces = {
             agent: Dict({
-                "observation": Box(low=-np.inf, high=np.inf, shape=(209,), dtype=np.float32),
+                "observation": Box(low=-np.inf, high=np.inf, shape=(214,), dtype=np.float32),
                 "action_mask": Box(low=0, high=1, shape=(38,), dtype=np.int8)
             })
             for agent in self.possible_agents
@@ -170,6 +170,13 @@ class CoupEnv(AECEnv):
         # Pad if less than 10 events
         for _ in range(10 - len(recent_events)):
             obs.extend([-1, -1, -1])
+
+        global_dead = [0, 0, 0, 0, 0]
+        for p in self.state.players.values():
+            for inf in p.influence:
+                if inf.revealed and inf.role.value != -1:
+                    global_dead[inf.role.value] += 1
+        obs.extend(global_dead)
 
         obs_vector = np.array(obs, dtype=np.float32)
 
