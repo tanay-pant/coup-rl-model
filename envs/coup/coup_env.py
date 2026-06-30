@@ -498,7 +498,7 @@ class CoupEnv(AECEnv):
         for agent_str in self.agents:
             i = int(agent_str.split("_")[1])
             if not self.terminations[agent_str] and self.state.players[i].influence_count > 0:
-                self.rewards[agent_str] -= 0.003
+                self.rewards[agent_str] -= 0.005
 
         self.state.turn.phase = Phase.START_OF_TURN
         self.state.turn.action = -1
