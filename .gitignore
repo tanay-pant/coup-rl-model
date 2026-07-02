@@ -6,4 +6,29 @@ checkpoints_pbt/
 checkpoints_rllib/
 checkpoints_lstm/
 checkpoints_lstm_pbt/
-checkpoints_lstm_advanced/
+checkpoints_lstm_advanced/*
+!checkpoints_lstm_advanced/checkpoint_50000/
+
+# Frontend (Vite)
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

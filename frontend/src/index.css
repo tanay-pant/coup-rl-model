@@ -1,0 +1,83 @@
+body {
+  background-color: #008080;
+  font-family: 'VT323', 'Courier New', Courier, monospace;
+  color: #000;
+  margin: 0;
+  padding: 20px;
+  font-size: 1.2rem;
+}
+
+.window {
+  background-color: #c0c0c0;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #000;
+  border-right: 2px solid #000;
+  padding: 2px;
+  margin-bottom: 10px;
+}
+
+.title-bar {
+  background: #000080;
+  color: white;
+  padding: 2px 4px;
+  font-weight: bold;
+  font-family: 'Courier New', Courier, monospace;
+  display: flex;
+  justify-content: space-between;
+}
+
+.window-content {
+  padding: 10px;
+}
+
+button {
+  background: #c0c0c0;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #000;
+  border-right: 2px solid #000;
+  padding: 4px 12px;
+  font-family: 'VT323', 'Courier New', monospace;
+  font-size: 1.2rem;
+  cursor: pointer;
+  margin: 4px;
+}
+button:active:not(:disabled) {
+  border-top: 2px solid #000;
+  border-left: 2px solid #000;
+  border-bottom: 2px solid #fff;
+  border-right: 2px solid #fff;
+  padding: 5px 11px 3px 13px;
+}
+button:disabled {
+  color: #808080;
+  cursor: not-allowed;
+}
+
+.player-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.player-box {
+  background: #fff;
+  border: 2px inset #c0c0c0;
+  padding: 8px;
+  width: 160px;
+}
+
+.player-box.active {
+  background: #ffffcc;
+}
+
+.log-box {
+  background: #fff;
+  border: 2px inset #c0c0c0;
+  padding: 8px;
+  height: 200px;
+  overflow-y: scroll;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 1rem;
+}
