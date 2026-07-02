@@ -82,7 +82,7 @@ class CoupActionMaskLSTM(TorchModelV2, nn.Module):
         TorchModelV2.__init__(self, obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
 
-        input_dim = 214 
+        input_dim = 184
         self.lstm_state_size = 512
 
         self.fc = nn.Sequential(

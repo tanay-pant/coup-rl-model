@@ -34,7 +34,7 @@ class CoupEnv(AECEnv):
         # 214-value Observation Array (includes 10-turn event log and global dead counts) and 38-value Action Mask
         self.observation_spaces = {
             agent: Dict({
-                "observation": Box(low=-np.inf, high=np.inf, shape=(214,), dtype=np.float32),
+                "observation": Box(low=-np.inf, high=np.inf, shape=(184,), dtype=np.float32),
                 "action_mask": Box(low=0, high=1, shape=(38,), dtype=np.int8)
             })
             for agent in self.possible_agents
@@ -48,14 +48,14 @@ class CoupEnv(AECEnv):
         self.num_players = random.randint(3, self.MAX_PLAYERS)
         self.agents = self.possible_agents[:self.num_players]
         self.rewards = {agent: 0 for agent in self.agents}
-        self._cumulative_rewards = {agent: 0 for agent in self.agents}
         self.terminations = {agent: False for agent in self.agents}
         self.truncations = {agent: False for agent in self.agents}
-        self.claims_history = np.zeros((self.MAX_PLAYERS, 5), dtype=np.int32)
-        self.action_history = np.zeros((self.MAX_PLAYERS, 7), dtype=np.int32)
         self.infos = {agent: {} for agent in self.agents}
-        self.event_log = []
         
+        self.active_claims = np.zeros((self.MAX_PLAYERS, 5), dtype=np.int32)
+        self.proven_not_to_have = np.zeros((self.MAX_PLAYERS, 5), dtype=np.int32)
+        self.grudges = np.zeros((self.MAX_PLAYERS, self.MAX_PLAYERS), dtype=np.int32)
+        self._cumulative_rewards = {agent: 0 for agent in self.agents}
         self.players_eliminated = 0
         self.winner_pot = 0.0
         self.elimination_step = 0.9 / max(1, self.num_players - 2)
@@ -87,7 +87,7 @@ class CoupEnv(AECEnv):
 
     def observe(self, agent):
         """
-        Translates the GameState into a flat 131-value NumPy array for the neural network,
+        Translates the GameState into a flat 184-value NumPy array for the neural network,
         and generates the 38-value binary Action Mask.
         """
         agent_idx = int(agent.split("_")[1])
@@ -152,25 +152,29 @@ class CoupEnv(AECEnv):
                     card_encoding[role_idx] = 1
             obs.extend(card_encoding)
 
-        ego_claims = np.roll(self.claims_history, shift=-agent_idx, axis=0)
+        # Active Claims (30 values)
+        ego_claims = np.roll(self.active_claims, shift=-agent_idx, axis=0)
         obs.extend(ego_claims.flatten().tolist())
 
-        # Action History (42 values)
-        ego_actions = np.roll(self.action_history, shift=-agent_idx, axis=0)
-        obs.extend(ego_actions.flatten().tolist())
+        # Is Over-Claiming (6 values)
+        is_over_claiming = np.zeros(self.MAX_PLAYERS, dtype=np.int32)
+        for i in range(self.MAX_PLAYERS):
+            opp_state = self.state.players.get(i, PlayerState(cash=0, influence_count=0))
+            if np.sum(self.active_claims[i]) > opp_state.influence_count:
+                is_over_claiming[i] = 1
+        ego_over_claiming = np.roll(is_over_claiming, shift=-agent_idx, axis=0)
+        obs.extend(ego_over_claiming.flatten().tolist())
 
-        # Event Log (30 values: last 10 events [initiator, action, target])
-        recent_events = self.event_log[-10:]
-        for event in recent_events:
-            init = (event[0] - agent_idx) % self.MAX_PLAYERS if event[0] != -1 else -1
-            act = event[1]
-            tgt = (event[2] - agent_idx) % self.MAX_PLAYERS if event[2] != -1 else -1
-            obs.extend([init, act, tgt])
-            
-        # Pad if less than 10 events
-        for _ in range(10 - len(recent_events)):
-            obs.extend([-1, -1, -1])
+        # Proven Not To Have (30 values)
+        ego_proven_not_to_have = np.roll(self.proven_not_to_have, shift=-agent_idx, axis=0)
+        obs.extend(ego_proven_not_to_have.flatten().tolist())
 
+        # Hostile Actions Against Me (Grudges) (6 values)
+        my_grudges = self.grudges[agent_idx]
+        ego_grudges = np.roll(my_grudges, shift=-agent_idx, axis=0)
+        obs.extend(ego_grudges.flatten().tolist())
+
+        # Global Dead (5 values)
         global_dead = [0, 0, 0, 0, 0]
         for p in self.state.players.values():
             for inf in p.influence:
@@ -179,7 +183,6 @@ class CoupEnv(AECEnv):
         obs.extend(global_dead)
 
         obs_vector = np.array(obs, dtype=np.float32)
-
         action_mask = np.zeros(38, dtype=np.int8)
 
         if my_state.influence_count == 0:
@@ -303,7 +306,6 @@ class CoupEnv(AECEnv):
             offset = action - 16 + 1
             target = (agent_idx + offset) % self.MAX_PLAYERS
 
-        self.event_log.append([agent_idx, action, target])
 
         # State Machine Routing
         phase = self.state.turn.phase
@@ -345,31 +347,16 @@ class CoupEnv(AECEnv):
             offset = action - 16 + 1
             target = (player + offset) % self.MAX_PLAYERS
 
-        # track claims made by player
         if action == 2:  # Tax -> Duke
             self._record_claim(player, Role.DUKE)
         elif action == 3:  # Exchange -> Ambassador
             self._record_claim(player, Role.AMBASSADOR)
         elif action in range(4, 9):  # Steal -> Captain
             self._record_claim(player, Role.CAPTAIN)
+            self._record_grudge(initiator=player, target=target)
         elif action in range(10, 15):  # Assassinate -> Assassin
             self._record_claim(player, Role.ASSASSIN)
-
-        # Track action history
-        if action == 0:
-            self.action_history[player][0] += 1
-        elif action == 1:
-            self.action_history[player][1] += 1
-        elif action == 2:
-            self.action_history[player][2] += 1
-        elif action == 3:
-            self.action_history[player][3] += 1
-        elif action in range(4, 9):
-            self.action_history[player][4] += 1
-        elif action in range(10, 15):
-            self.action_history[player][5] += 1
-        elif action in range(16, 21):
-            self.action_history[player][6] += 1
+            self._record_grudge(initiator=player, target=target)
 
         if action == 0:  # Income
             p_state.cash += 1
@@ -423,6 +410,7 @@ class CoupEnv(AECEnv):
                 27: Role.CONTESSA,
                 28: Role.AMBASSADOR}
             self._record_claim(player, roles[action])
+            self._record_grudge(initiator=player, target=self.state.turn.active_player)
             self.state.turn.phase = Phase.BLOCK_RESPONSE
             self.state.turn.blocking_role = roles[action]
             self.state.turn.target = player
@@ -446,6 +434,9 @@ class CoupEnv(AECEnv):
             32: Role.AMBASSADOR,
             33: Role.CONTESSA}
         role_to_kill = roles.get(action, Role.NONE)
+
+        if role_to_kill != Role.NONE and self.active_claims[player][role_to_kill.value] == 1:
+            self.active_claims[player][role_to_kill.value] = 0
 
         p_state = self.state.players[player]
         for inf in p_state.influence:
@@ -487,6 +478,8 @@ class CoupEnv(AECEnv):
                     inf.role = kept_cards[kept_idx]
                     kept_idx += 1
             self.state.turn.exchange_pool = [Role.NONE] * 4
+            self.active_claims[player].fill(0)
+            self.proven_not_to_have[player].fill(0)
             self._next_turn()
 
     # ==========================================
@@ -652,6 +645,7 @@ class CoupEnv(AECEnv):
         else:
             loser = challenged
             # The challenger called a bluff CORRECTLY.
+            self.proven_not_to_have[challenged][claimed_role.value] = 1
             
             # If the bluffed action was an Assassination, refund the 3 coins!
             if not challenging_block and self.state.turn.action in range(10, 15):
@@ -724,4 +718,8 @@ class CoupEnv(AECEnv):
 
     def _record_claim(self, player_idx, role):
         if role != Role.NONE:
-            self.claims_history[player_idx][role.value] += 1
+            self.active_claims[player_idx][role.value] = 1
+
+    def _record_grudge(self, initiator, target):
+        if target != -1 and target is not None:
+            self.grudges[target][initiator] = 1

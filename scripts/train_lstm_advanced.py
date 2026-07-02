@@ -148,6 +148,19 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
     obs_space = dummy_env.observation_space["player_0"]
     act_space = dummy_env.action_space["player_0"]
 
+    # Calculate initial entropy based on start_iter to prevent collapse on resume
+    if start_iter <= 2000:
+        initial_entropy = 0.20
+    elif start_iter <= 30000:
+        fraction = (start_iter - 2000) / 28000.0
+        initial_entropy = 0.20 - (0.15 * fraction)
+    else:
+        fraction = (start_iter - 30000) / 20000.0
+        initial_entropy = 0.05 - (0.04 * fraction)
+        initial_entropy = max(0.01, initial_entropy)
+        
+    initial_clip = 0.3 if start_iter <= 30000 else 0.15
+
     config = (
         PPOConfig()
         .environment(
@@ -166,6 +179,8 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
             train_batch_size=6000,
             minibatch_size=1200,
             grad_clip=1.0,
+            entropy_coeff=initial_entropy,
+            clip_param=initial_clip,
             lr_schedule=[
                 [0, 1e-4],
                 [6000000, 1e-4],
@@ -243,6 +258,26 @@ def train_coup():
         # To apply our updated config (specifically higher entropy), we instantiate algo from config, then restore weights
         algo = config.build_algo()
         algo.restore(latest_ckpt)
+        
+        # Ensure rollout workers know they are not at iteration 0 so FSP scheduling doesn't reset
+        # CRITICAL FIX: We MUST also sync the global timestep so the learning rate schedule doesn't 
+        # evaluate to iteration 0 (1e-4) for the first gradient step, which destroys the mature policy!
+        true_timestep = algo.get_policy("main_policy").global_timestep
+        def _sync_worker(w):
+            if not hasattr(w, "global_vars"): w.global_vars = {}
+            w.global_vars["training_iteration"] = start_iter
+            w.global_vars["timestep"] = true_timestep
+        algo.env_runner_group.foreach_env_runner(_sync_worker)
+        
+        # Force the policy to evaluate its LR schedule against the true timestep immediately
+        algo.get_policy("main_policy").on_global_var_update({"timestep": true_timestep})
+        
+        # CRITICAL FIX 2: If the kl_coeff decayed to 0.0 in the checkpoint, resuming without a KL 
+        # penalty allows the first gradient step to completely shatter the policy (especially with clip=0.3).
+        # We force it back to a safe default of 0.2 to constrain the policy during the resumption warmup.
+        if hasattr(algo.get_policy("main_policy"), "kl_coeff"):
+            if algo.get_policy("main_policy").kl_coeff < 0.1:
+                algo.get_policy("main_policy").kl_coeff = 0.2
     else:
         print("No checkpoint found. Starting from scratch...")
         algo = config.build_algo()
