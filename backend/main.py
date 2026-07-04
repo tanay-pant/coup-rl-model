@@ -276,7 +276,15 @@ async def game_engine_loop(session_id: str):
                         if action_mask[action] == 1:
                             log_msg = generate_contextual_log(env, action, 0)
                             session.log_messages.append(log_msg)
+                            was_challenge = (action == 22)
                             env.step(action)
+                            if was_challenge:
+                                loser = env.state.turn.player_to_reveal
+                                loser_name = "You" if loser == 0 else f"AI {loser}"
+                                if loser == 0:
+                                    session.log_messages.append("...and you were WRONG! You lose a card.")
+                                else:
+                                    session.log_messages.append(f"...and you were RIGHT! {loser_name} was bluffing and loses a card.")
                             break
                         else:
                             await session.send_json({"type": "error", "message": "Invalid action"})
@@ -318,7 +326,15 @@ async def game_engine_loop(session_id: str):
 
                 log_msg = generate_contextual_log(env, action, agent_idx)
                 session.log_messages.append(log_msg)
+                was_challenge = (action == 22)
                 env.step(action)
+                if was_challenge:
+                    loser = env.state.turn.player_to_reveal
+                    loser_name = "You" if loser == 0 else f"AI {loser}"
+                    if loser == agent_idx:
+                        session.log_messages.append(f"...and they were WRONG! AI {agent_idx} loses a card.")
+                    else:
+                        session.log_messages.append(f"...and they were RIGHT! {loser_name} was bluffing and loses a card.")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
