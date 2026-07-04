@@ -245,8 +245,13 @@ button:disabled {
   flex: 1 1 120px;
   max-width: 200px;
   position: relative;
+  z-index: 500;
   transition: all 0.3s ease;
   box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+}
+
+.player-box:hover {
+  z-index: 501;
 }
 
 .player-box.active {
@@ -315,6 +320,11 @@ button:disabled {
   perspective: 1000px;
 }
 
+.modal-content .cards-container {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 /* Base playing card sizing vastly increased */
 .playing-card {
   width: clamp(60px, 15vw, 90px);
@@ -335,6 +345,7 @@ button:disabled {
   text-align: center;
   padding: 4px;
   overflow: hidden;
+  user-select: none;
 }
 
 .card-text {
@@ -426,6 +437,8 @@ button:disabled {
   box-shadow: 0 8px 25px rgba(0,0,0,0.5);
   flex: 1 1 auto;
   overflow: visible;
+  position: relative;
+  z-index: 200;
 }
 
 .actions-grid {
@@ -511,8 +524,12 @@ button:disabled {
     right: 0;
     top: 0;
     height: 100%;
+    max-width: 85vw;
   }
   .table-center-area {
+    flex-direction: column;
+  }
+  .my-area .player-box {
     flex-direction: column;
   }
 }

@@ -137,7 +137,8 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
         else: return "past_policy_10"
 
 def env_creator(config):
-    env = CoupEnv()
+    # Preserve max_moves=200 for training to force aggressive/lethal play
+    env = CoupEnv(max_moves=200)
     return PettingZooEnv(env)
 
 register_env("coup_parallel_v0", env_creator)

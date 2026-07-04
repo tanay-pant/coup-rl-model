@@ -89,17 +89,18 @@ const getOrdinal = (n: number | null) => {
 
 const parseLogToSnippet = (msg: string) => {
   let icon = '▶️';
-  if (msg.includes('Income')) icon = '💰';
+  // Response actions have priority for icons
+  if (msg.includes('allow') || msg.includes('accept')) icon = '👍';
+  else if (msg.includes('block')) icon = '🛡️';
+  else if (msg.includes('challeng')) icon = '🗣️';
+  else if (msg.includes('reveal')) icon = '👁️';
+  // Primary actions
+  else if (msg.includes('Assassinate') || msg.includes('Coup')) icon = '🗡️';
+  else if (msg.includes('Income')) icon = '💰';
   else if (msg.includes('Foreign Aid')) icon = '💸';
   else if (msg.includes('Tax')) icon = '🎩';
   else if (msg.includes('Exchange')) icon = '📜';
-  else if (msg.includes('Steal')) icon = '⚓';
-  else if (msg.includes('Assassinate')) icon = '🗡️';
-  else if (msg.includes('Coup')) icon = '⚔️';
-  else if (msg.includes('challeng')) icon = '🗣️';
-  else if (msg.includes('allow') || msg.includes('accept')) icon = '👍';
-  else if (msg.includes('block')) icon = '🛡️';
-  else if (msg.includes('reveal')) icon = '👁️';
+  else if (msg.includes('Steal')) icon = '🎭';
 
   const shortMsg = msg.replace('decided to ', '').replace('chose: ', '');
   return `${icon} ${shortMsg}`;
@@ -109,7 +110,7 @@ function App() {
   const [appState, setAppState] = useState<AppState>('connecting');
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [localLog, setLocalLog] = useState<string[]>([]);
-  const [turnLogs, setTurnLogs] = useState<string[]>([]);
+  const [turnLogs, setTurnLogs] = useState<{id: number, text: string, original: string}[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [botCount, setBotCount] = useState<number>(3);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -117,7 +118,8 @@ function App() {
   const ws = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const lastLogLength = useRef<number>(0);
-  const currentActivePlayer = useRef<number | null>(null);
+  const logIdCounter = useRef<number>(0);
+  const previousTurnPhase = useRef<string | null>(null);
 
   useEffect(() => {
     connect();
@@ -137,20 +139,46 @@ function App() {
   useEffect(() => {
     if (!gameState) return;
 
-    if (currentActivePlayer.current !== gameState.active_player) {
-      setTurnLogs([]);
-      currentActivePlayer.current = gameState.active_player;
+    let currentLastLength = lastLogLength.current;
+    
+    // If localLog shrinks, the game restarted. Reset the tracker!
+    if (localLog.length < currentLastLength || localLog.length === 0) {
+      currentLastLength = 0;
+      lastLogLength.current = 0;
+      if (localLog.length === 0) {
+         setTurnLogs([]);
+         return;
+      }
     }
 
-    if (localLog.length > lastLogLength.current) {
-      const newLogs = localLog.slice(lastLogLength.current);
+    let shouldWipe = false;
+    if (gameState.phase === 'START_OF_TURN' && previousTurnPhase.current !== 'START_OF_TURN') {
+        shouldWipe = true;
+    }
+    previousTurnPhase.current = gameState.phase;
+
+    if (localLog.length > currentLastLength) {
+      const newLogs = localLog.slice(currentLastLength);
       lastLogLength.current = localLog.length;
       
-      const parsedLogs = newLogs.map(parseLogToSnippet);
-      setTurnLogs(prev => [...prev, ...parsedLogs]);
-    } else if (localLog.length === 0) {
-      lastLogLength.current = 0;
-      setTurnLogs([]);
+      const parsedLogs = newLogs.map(log => {
+        return { id: logIdCounter.current++, text: parseLogToSnippet(log), original: log };
+      });
+      
+      setTurnLogs(prev => {
+        if (shouldWipe) return [];
+        let current = currentLastLength === 0 ? [] : [...prev];
+        for (const pLog of parsedLogs) {
+          if (pLog.original.includes('decided to')) {
+            current = [pLog];
+          } else {
+            current.push(pLog);
+          }
+        }
+        return current;
+      });
+    } else if (shouldWipe) {
+        setTurnLogs([]);
     }
   }, [localLog, gameState]);
 
@@ -325,8 +353,8 @@ function App() {
 
         {/* Transient Turn Logs Ticker */}
         <div className="action-toast-container">
-          {turnLogs.map((log, i) => (
-            <div key={i} className="action-toast">{log}</div>
+          {turnLogs.map((log) => (
+            <div key={log.id} className="action-toast">{log.text}</div>
           ))}
         </div>
 
@@ -346,7 +374,7 @@ function App() {
                   let tooltipText = "";
                   if (isTarget) {
                     if (action.name === "Challenge") {
-                      tooltipText = "If you challenge and lose, you will still have a chance to block!";
+                      tooltipText = "If you challenge and lose, you still lose a card! However, if you survive, you can still block.";
                     } else if (action.name.includes("Block")) {
                       tooltipText = "Blocking directly implies you do not challenge their action.";
                     }
@@ -421,13 +449,13 @@ function App() {
             <h2>Exchange Phase</h2>
             <p style={{fontFamily: 'VT323, monospace'}}>Select a card to <strong>RETURN</strong> to the deck.</p>
             <div className="cards-container" style={{ justifyContent: 'center', margin: '20px 0' }}>
-              {gameState.exchange_pool.map((c, i) => {
-                const canReturn = gameState.valid_actions.some(a => a.id === 34 + i);
+              {gameState.exchange_pool.map((c) => {
+                const canReturn = gameState.valid_actions.some(a => a.id === 34 + c.id);
                 return (
                   <div 
                     key={c.id} 
                     className={`playing-card role-${getShortRoleName(c.role)} ${canReturn ? 'selectable' : ''}`}
-                    onClick={() => canReturn && handleAction(34 + i)}
+                    onClick={() => canReturn && handleAction(34 + c.id)}
                   >
                     <div className="card-icon">{getRoleIcon(c.role)}</div>
                     <div className="card-text">{getShortRoleName(c.role)}</div>

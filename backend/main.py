@@ -116,30 +116,27 @@ def generate_contextual_log(env, action, agent_idx):
         original_action = get_action_name(env.state.turn.action, env.state.turn.active_player)
         
         if action == 23: # Allow
-            return f"{agent_name} allowed {active_player} to {original_action}"
+            return f"{agent_name} allowed"
         elif action == 22: # Challenge
-            return f"{agent_name} challenged {active_player}'s {original_action}!"
+            return f"{agent_name} challenged {active_player}'s {original_action}"
             
     if phase == "ACTION_BLOCK":
-        active_player = get_target_name(env.state.turn.active_player)
-        original_action = get_action_name(env.state.turn.action, env.state.turn.active_player)
-        
         if action == 23: # Allow
-            return f"{agent_name} allowed {active_player} to {original_action}"
+            return f"{agent_name} allowed"
         else: # Block
-            return f"{agent_name} blocked {active_player}'s {original_action} with {action_name.replace('Block with ', '')}"
+            return f"{agent_name} blocked with {action_name.replace('Block with ', '')}"
             
     if phase == "BLOCK_RESPONSE":
         blocker = get_target_name(env.state.turn.target)
         if action == 23:
-            return f"{agent_name} accepted {blocker}'s block"
+            return f"{agent_name} accepted"
         elif action == 22:
-            return f"{agent_name} challenged {blocker}'s block!"
+            return f"{agent_name} challenged {blocker}'s block"
             
     if phase == "REVEAL_INFLUENCE":
         roles = {29: "Duke", 30: "Assassin", 31: "Captain", 32: "Ambassador", 33: "Contessa"}
         revealed_role = roles.get(action, "Unknown")
-        return f"{agent_name} revealed a {revealed_role} and lost it!"
+        return f"{agent_name} revealed a {revealed_role}"
         
     if phase == "EXCHANGE":
         return None
@@ -275,17 +272,16 @@ async def game_engine_loop(session_id: str):
                         action = data.get("action_id")
                         if action_mask[action] == 1:
                             log_msg = generate_contextual_log(env, action, 0)
-                            if log_msg:
-                                session.log_messages.append(log_msg)
                             was_challenge = (action == 22)
                             env.step(action)
                             if was_challenge:
                                 loser = env.state.turn.player_to_reveal
-                                loser_name = "You" if loser == 0 else f"AI {loser}"
-                                if loser == 0:
-                                    session.log_messages.append("...and you were WRONG! You lose a card.")
-                                else:
-                                    session.log_messages.append(f"...and you were RIGHT! {loser_name} was bluffing and loses a card.")
+                                result = "WRONG!" if loser == 0 else "RIGHT!"
+                                if log_msg:
+                                    log_msg = f"{log_msg}, {result}"
+                                    
+                            if log_msg:
+                                session.log_messages.append(log_msg)
                             break
                         else:
                             await session.send_json({"type": "error", "message": "Invalid action"})
@@ -326,17 +322,16 @@ async def game_engine_loop(session_id: str):
                         action = 0
 
                 log_msg = generate_contextual_log(env, action, agent_idx)
-                if log_msg:
-                    session.log_messages.append(log_msg)
                 was_challenge = (action == 22)
                 env.step(action)
                 if was_challenge:
                     loser = env.state.turn.player_to_reveal
-                    loser_name = "You" if loser == 0 else f"AI {loser}"
-                    if loser == agent_idx:
-                        session.log_messages.append(f"...and they were WRONG! AI {agent_idx} loses a card.")
-                    else:
-                        session.log_messages.append(f"...and they were RIGHT! {loser_name} was bluffing and loses a card.")
+                    result = "WRONG!" if loser == agent_idx else "RIGHT!"
+                    if log_msg:
+                        log_msg = f"{log_msg}, {result}"
+                        
+                if log_msg:
+                    session.log_messages.append(log_msg)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
