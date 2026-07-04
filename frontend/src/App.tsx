@@ -113,7 +113,7 @@ function App() {
   const [turnLogs, setTurnLogs] = useState<{id: number, text: string, original: string}[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [botCount, setBotCount] = useState<number>(3);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
   
   const ws = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -421,6 +421,9 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* Sidebar Overlay Backdrop */}
+      {isSidebarOpen && <div className="sidebar-backdrop" onClick={() => setIsSidebarOpen(false)}></div>}
 
       {/* Sidebar for Logs and Phase */}
       <div className={`sidebar ${isSidebarOpen ? '' : 'collapsed'}`}>

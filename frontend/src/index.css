@@ -85,7 +85,7 @@ h1, h2, h3, h4 {
   flex-direction: column;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
-  z-index: 100;
+  z-index: 2000;
   box-shadow: -5px 0 15px rgba(0,0,0,0.5);
 }
 
@@ -108,10 +108,14 @@ h1, h2, h3, h4 {
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  z-index: 101;
+  z-index: 2001;
   padding: 0;
   font-size: 1.5rem;
   box-shadow: -3px 3px 0 #000;
+}
+
+.sidebar-backdrop {
+  display: none;
 }
 
 .sidebar-content {
@@ -528,6 +532,16 @@ button:disabled {
     top: 0;
     height: 100%;
     max-width: 85vw;
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0,0,0,0.5);
+    z-index: 1999;
   }
   .table-center-area {
     flex-direction: column;
