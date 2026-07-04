@@ -17,7 +17,7 @@ def env(render_mode=None):
 class CoupEnv(AECEnv):
     metadata = {'render_modes': ['human'], "name": "coup_v0", "is_parallelizable": True}
 
-    def __init__(self, render_mode=None, max_moves=200):
+    def __init__(self, render_mode=None, max_moves=2000):
         super().__init__()
         self.render_mode = render_mode
         self.max_moves = max_moves
@@ -45,7 +45,10 @@ class CoupEnv(AECEnv):
             random.seed(seed)
             np.random.seed(seed)
 
-        self.num_players = random.randint(3, self.MAX_PLAYERS)
+        if options and 'num_players' in options:
+            self.num_players = options['num_players']
+        else:
+            self.num_players = random.randint(3, self.MAX_PLAYERS)
         self.agents = self.possible_agents[:self.num_players]
         self.rewards = {agent: 0 for agent in self.agents}
         self.terminations = {agent: False for agent in self.agents}
@@ -222,7 +225,13 @@ class CoupEnv(AECEnv):
                 
                 if self.state.turn.phase == Phase.ACTION_CHALLENGE:
                     action_mask[22] = 1  # Challenge
-                    
+                    if self.state.turn.target == agent_idx:
+                        if self.state.turn.action in range(10, 15):
+                            action_mask[27] = 1  # Contessa
+                        elif self.state.turn.action in range(4, 9):
+                            action_mask[25] = 1  # Captain
+                            action_mask[28] = 1  # Ambassador
+                            
                 elif self.state.turn.phase == Phase.BLOCK_RESPONSE:
                     action_mask[22] = 1  # Challenge
                     
@@ -392,11 +401,18 @@ class CoupEnv(AECEnv):
 
     def _handle_challenge_response(self, player, action):
         if action == 23:  # Allow/Pass
+            if player == self.state.turn.target:
+                self.state.turn.target_passed_block = True
             self._advance_intervention_window()
             return
         if action == 22:  # Challenge
             self._resolve_challenge(challenger=player)
             return
+            
+        if action in [24, 25, 27, 28]:
+            self._handle_block_decision(player, action)
+            return
+
 
     def _handle_block_decision(self, player, action):
         if action == 23:  # Allow/Pass
@@ -499,6 +515,7 @@ class CoupEnv(AECEnv):
         self.state.turn.blocking_role = Role.NONE
         self.state.turn.pending_action = False
         self.state.turn.resuming_from_failed_block = False
+        self.state.turn.target_passed_block = False
 
         for agent in self.agents:
             if self.terminations[agent]:
@@ -515,11 +532,19 @@ class CoupEnv(AECEnv):
 
     def _open_challenge_window(self, initiator):
         self.intervention_queue = []
+        target = self.state.turn.target if self.state.turn.action in list(range(4,15)) else -1
+        
+        others = []
         for i in range(self.num_players):
-            if i != initiator and self.state.players[i].influence_count > 0:
-                self.intervention_queue.append(i)
+            if i != initiator and i != target and self.state.players[i].influence_count > 0:
+                others.append(i)
                 
-        random.shuffle(self.intervention_queue)
+        random.shuffle(others)
+        self.intervention_queue = others
+        
+        if target != -1 and self.state.players.get(target, PlayerState(cash=0, influence_count=0)).influence_count > 0:
+            self.intervention_queue.append(target)
+            
         self._advance_intervention_window()
 
     def _open_block_window(self):
@@ -532,8 +557,9 @@ class CoupEnv(AECEnv):
                     self.intervention_queue.append(i)
         elif action in range(4, 15):
             target = self.state.turn.target
-            if self.state.players.get(target, PlayerState(cash=0, influence_count=0)).influence_count > 0:
-                self.intervention_queue.append(target)
+            if not getattr(self.state.turn, 'target_passed_block', False):
+                if self.state.players.get(target, PlayerState(cash=0, influence_count=0)).influence_count > 0:
+                    self.intervention_queue.append(target)
                 
         random.shuffle(self.intervention_queue)
         

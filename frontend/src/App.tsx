@@ -27,16 +27,97 @@ interface GameState {
   valid_actions: ValidAction[];
   log: string[];
   winner: string | null;
+  deck_count: number;
+  player_0_placement: number | null;
 }
 
-const WS_URL = import.meta.env.DEV ? "ws://127.0.0.1:7860/ws" : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
+type AppState = 'connecting' | 'lobby' | 'playing';
+
+const WS_URL = "wss://ptanay-coup-rl-backend.hf.space/ws";
+
+const toTitleCase = (str: string) => {
+  if (!str || str === 'HIDDEN') return 'HIDDEN';
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+};
+
+const getShortRoleName = (role: string) => {
+  const t = toTitleCase(role);
+  switch (t) {
+    case 'Duke': return 'Duke';
+    case 'Assassin': return 'Assn';
+    case 'Captain': return 'Capt';
+    case 'Ambassador': return 'Ambs';
+    case 'Contessa': return 'Cnts';
+    case 'HIDDEN': return 'HIDDEN';
+    default: return t;
+  }
+};
+
+const getRoleIcon = (role: string) => {
+  switch (toTitleCase(role)) {
+    case 'Duke': return '🎩';
+    case 'Assassin': return '🗡️';
+    case 'Captain': return '⚓';
+    case 'Ambassador': return '📜';
+    case 'Contessa': return '👑';
+    default: return '❓';
+  }
+};
+
+const getActionIcon = (name: string) => {
+  if (name.includes('Income')) return '💰';
+  if (name.includes('Foreign Aid')) return '💸';
+  if (name.includes('Tax')) return '🎩';
+  if (name.includes('Exchange return')) return '🗂️';
+  if (name.includes('Exchange')) return '📜';
+  if (name.includes('Steal')) return '⚓';
+  if (name.includes('Assassinate')) return '🗡️';
+  if (name.includes('Coup')) return '⚔️';
+  if (name.includes('Challenge')) return '🗣️';
+  if (name.includes('Allow')) return '👍';
+  if (name.includes('Block')) return '🛡️';
+  if (name.includes('Reveal')) return '👁️';
+  return '▶️';
+};
+
+const getOrdinal = (n: number | null) => {
+  if (n === null) return "";
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
+const parseLogToSnippet = (msg: string) => {
+  let icon = '▶️';
+  if (msg.includes('Income')) icon = '💰';
+  else if (msg.includes('Foreign Aid')) icon = '💸';
+  else if (msg.includes('Tax')) icon = '🎩';
+  else if (msg.includes('Exchange')) icon = '📜';
+  else if (msg.includes('Steal')) icon = '⚓';
+  else if (msg.includes('Assassinate')) icon = '🗡️';
+  else if (msg.includes('Coup')) icon = '⚔️';
+  else if (msg.includes('challeng')) icon = '🗣️';
+  else if (msg.includes('allow') || msg.includes('accept')) icon = '👍';
+  else if (msg.includes('block')) icon = '🛡️';
+  else if (msg.includes('reveal')) icon = '👁️';
+
+  const shortMsg = msg.replace('decided to ', '').replace('chose: ', '');
+  return `${icon} ${shortMsg}`;
+};
 
 function App() {
+  const [appState, setAppState] = useState<AppState>('connecting');
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [connected, setConnected] = useState(false);
+  const [localLog, setLocalLog] = useState<string[]>([]);
+  const [turnLogs, setTurnLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [botCount, setBotCount] = useState<number>(3);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
   const ws = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const lastLogLength = useRef<number>(0);
+  const currentActivePlayer = useRef<number | null>(null);
 
   useEffect(() => {
     connect();
@@ -48,28 +129,77 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (logEndRef.current) {
+    if (logEndRef.current && isSidebarOpen) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [gameState?.log]);
+  }, [localLog, isSidebarOpen]);
+
+  useEffect(() => {
+    if (!gameState) return;
+
+    if (currentActivePlayer.current !== gameState.active_player) {
+      setTurnLogs([]);
+      currentActivePlayer.current = gameState.active_player;
+    }
+
+    if (localLog.length > lastLogLength.current) {
+      const newLogs = localLog.slice(lastLogLength.current);
+      lastLogLength.current = localLog.length;
+      
+      const parsedLogs = newLogs.map(parseLogToSnippet);
+      setTurnLogs(prev => [...prev, ...parsedLogs]);
+    } else if (localLog.length === 0) {
+      lastLogLength.current = 0;
+      setTurnLogs([]);
+    }
+  }, [localLog, gameState]);
 
   const connect = () => {
-    ws.current = new WebSocket(WS_URL);
+    setAppState('connecting');
+    const savedSessionId = localStorage.getItem('coup_session_id');
+    const url = savedSessionId ? `${WS_URL}?session_id=${savedSessionId}` : WS_URL;
+    ws.current = new WebSocket(url);
     ws.current.onopen = () => {
-      setConnected(true);
       setError(null);
     };
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'state_update') {
+      if (data.type === 'session_id') {
+        localStorage.setItem('coup_session_id', data.session_id);
+      } else if (data.type === 'lobby_state') {
+        setAppState('lobby');
+        setGameState(null);
+        setLocalLog([]);
+      } else if (data.type === 'state_update') {
+        setAppState('playing');
         setGameState(data.data);
+        
+        // Backend now returns full contextual log list every time
+        setLocalLog(data.data.log as string[]);
       } else if (data.type === 'error') {
         setError(data.message);
       }
     };
     ws.current.onclose = () => {
-      setConnected(false);
+      setAppState('connecting');
+      setTimeout(() => {
+        if (ws.current?.readyState === WebSocket.CLOSED) {
+          connect();
+        }
+      }, 2000);
     };
+  };
+
+  const startGame = () => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({ type: 'start_game', bot_count: botCount }));
+    }
+  };
+
+  const restartGame = () => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({ type: 'restart' }));
+    }
   };
 
   const handleAction = (actionId: number) => {
@@ -78,27 +208,11 @@ function App() {
     }
   };
 
-  if (!connected) {
-    return (
-      <div className="window" style={{ maxWidth: '400px', margin: '0 auto' }}>
-        <div className="title-bar">
-          <span>Connection Status</span>
-        </div>
-        <div className="window-content">
-          <p>Connecting to AI Server...</p>
-          <button onClick={connect}>Retry</button>
-        </div>
-      </div>
-    );
-  }
-
   if (error) {
     return (
-      <div className="window" style={{ maxWidth: '400px', margin: '0 auto' }}>
-        <div className="title-bar">
-          <span>Error</span>
-        </div>
-        <div className="window-content">
+      <div className="modal-overlay">
+        <div className="modal-content">
+          <h1 style={{color: 'red'}}>Error</h1>
           <p>{error}</p>
           <button onClick={connect}>Reconnect</button>
         </div>
@@ -106,85 +220,245 @@ function App() {
     );
   }
 
-  if (!gameState) {
+  if (appState === 'connecting') {
     return (
-      <div className="window" style={{ maxWidth: '400px', margin: '0 auto' }}>
-        <div className="title-bar">
-          <span>Loading</span>
-        </div>
-        <div className="window-content">
-          <p>Waiting for game state...</p>
+      <div className="modal-overlay">
+        <div className="modal-content">
+          <h1>Connecting...</h1>
+          <p>Waking up the AI server on Hugging Face 🚀</p>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="app-container" style={{ maxWidth: '1000px', margin: '0 auto' }}>
-      <div className="window">
-        <div className="title-bar">
-          <span>Coup AI - Retro Edition</span>
-        </div>
-        <div className="window-content">
-          <h3>Phase: {gameState.phase} | Winner: {gameState.winner || "None"}</h3>
-          
-          <div className="player-container">
-            {gameState.players.map((p) => (
-              <div key={p.id} className={`player-box ${gameState.active_player === p.id ? 'active' : ''}`} style={{ opacity: p.alive ? 1 : 0.5 }}>
-                <strong>{p.name}</strong>
-                <p style={{ margin: '4px 0' }}>Cash: {p.cash}</p>
-                <div>
-                  {p.cards.map((c, i) => (
-                    <div key={i}>[{c.revealed ? `${c.role} (DEAD)` : c.role}]</div>
-                  ))}
-                </div>
-              </div>
+  if (appState === 'lobby') {
+    return (
+      <div className="modal-overlay">
+        <div className="modal-content">
+          <h1>Coup RL</h1>
+          <p>Select number of AI opponents:</p>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', margin: '20px 0' }}>
+            {[2, 3, 4, 5].map(n => (
+              <button 
+                key={n} 
+                onClick={() => setBotCount(n)}
+                style={{ backgroundColor: botCount === n ? 'var(--accent)' : '#2b2d42' }}
+              >
+                {n} Bots
+              </button>
             ))}
           </div>
-
-          {gameState.exchange_pool.length > 0 && (
-            <div style={{ marginTop: '10px' }}>
-              <strong>Exchange Pool:</strong>
-              {gameState.exchange_pool.map((c) => (
-                <span key={c.id} style={{ marginLeft: '5px' }}>[{c.id}: {c.role}]</span>
-              ))}
-            </div>
-          )}
+          <button onClick={startGame} style={{ fontSize: '1.5rem', padding: '15px 30px' }}>Deal Cards</button>
         </div>
       </div>
+    );
+  }
 
-      <div className="window">
-        <div className="title-bar">
-          <span>Actions (You)</span>
-        </div>
-        <div className="window-content">
-          {gameState.valid_actions.length > 0 ? (
-            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-              {gameState.valid_actions.map(action => (
-                <button key={action.id} onClick={() => handleAction(action.id)}>
-                  {action.name}
-                </button>
-              ))}
+  if (!gameState) return null;
+
+  // Split players into Opponents and You
+  const you = gameState.players.find(p => p.id === 0);
+  const opponents = gameState.players.filter(p => p.id !== 0);
+
+  const resetGame = () => {
+    localStorage.removeItem('coup_session_id');
+    if (ws.current) {
+      ws.current.close();
+    }
+    setTimeout(connect, 100);
+  };
+
+  return (
+    <div className="main-wrapper">
+      <div className="app-container">
+        
+        <button 
+          onClick={resetGame} 
+          style={{
+            position: 'absolute', 
+            top: '10px', 
+            left: '10px', 
+            zIndex: 1000, 
+            background: '#ef476f', 
+            color: 'white', 
+            border: '2px solid #fff', 
+            padding: '5px 10px', 
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontFamily: 'VT323, monospace',
+            fontSize: '1.2rem'
+          }}
+        >
+          Reset Game
+        </button>
+
+        {/* Opponents Row */}
+        <div className="opponents-row">
+          {opponents.map((p) => (
+            <div key={p.id} className={`player-box ${gameState.active_player === p.id ? 'active' : ''} ${!p.alive ? 'dead' : ''}`}>
+              
+              {/* Hover History Tooltip */}
+              <div className="history-tooltip">
+                <div style={{textAlign: 'center', marginBottom: '4px', fontWeight: 'bold', borderBottom: '1px solid #333'}}>{p.name}'s History:</div>
+                {localLog.filter(msg => msg.startsWith(p.name)).length > 0 ? 
+                  localLog.filter(msg => msg.startsWith(p.name)).map((msg, i) => <div key={i} style={{marginBottom: '3px'}}>• {msg.replace(p.name + ' ', '')}</div>)
+                  : <div style={{textAlign: 'center'}}>No actions yet</div>
+                }
+              </div>
+
+              <div className="player-header">
+                {p.name}
+                <span className="player-cash">💰 {p.cash}</span>
+              </div>
+              
+              <div className="cards-container">
+                {p.cards.map((c, i) => (
+                  <div key={i} className={`playing-card ${c.revealed ? 'dead role-' + getShortRoleName(c.role) : 'role-HIDDEN'}`}>
+                    <div className="card-icon">{c.revealed ? getRoleIcon(c.role) : '❓'}</div>
+                    <div className="card-text">{c.revealed ? getShortRoleName(c.role) : 'HIDDEN'}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          ) : (
-            <p>{gameState.winner ? "Game Over! Refresh to restart." : "Waiting for AI..."}</p>
-          )}
+          ))}
         </div>
+
+        {/* Transient Turn Logs Ticker */}
+        <div className="action-toast-container">
+          {turnLogs.map((log, i) => (
+            <div key={i} className="action-toast">{log}</div>
+          ))}
+        </div>
+
+        {/* Center Action Area & Deck */}
+        <div className="table-center-area">
+
+          <div className="deck-tracker">
+            <div className="deck-visual"></div>
+            <div className="deck-count">{gameState.deck_count ?? 15}</div>
+          </div>
+          <div className="actions-container">
+            <div className="actions-grid">
+              {(() => {
+                const hasChallenge = gameState.valid_actions.some(a => a.name === "Challenge");
+                const isTarget = hasChallenge && gameState.valid_actions.some(a => a.name.includes("Block"));
+                return gameState.valid_actions.map(action => {
+                  let tooltipText = "";
+                  if (isTarget) {
+                    if (action.name === "Challenge") {
+                      tooltipText = "If you challenge and lose, you will still have a chance to block!";
+                    } else if (action.name.includes("Block")) {
+                      tooltipText = "Blocking directly implies you do not challenge their action.";
+                    }
+                  }
+                  
+                  return (
+                    <button key={action.id} className="action-btn" onClick={() => handleAction(action.id)}>
+                      <span style={{ fontSize: '1.5rem' }}>{getActionIcon(action.name)}</span> {action.name}
+                      {tooltipText && (
+                        <span className="action-tooltip-wrapper">
+                          <span className="info-icon">?</span>
+                          <div className="action-tooltip-text">{tooltipText}</div>
+                        </span>
+                      )}
+                    </button>
+                  );
+                });
+              })()}
+              {gameState.valid_actions.length === 0 && <p style={{fontFamily: 'VT323, monospace'}}>Waiting for opponents...</p>}
+            </div>
+          </div>
+        </div>
+
+        {/* My Area */}
+        {you && (
+          <div className="my-area">
+            <div className={`player-box ${gameState.active_player === 0 ? 'active' : ''} ${!you.alive ? 'dead' : ''}`}>
+               <div className="player-header">
+                You
+                <span className="player-cash">💰 {you.cash}</span>
+              </div>
+              
+              <div className="cards-container">
+                {you.cards.map((c, i) => (
+                  <div key={i} className={`playing-card role-${getShortRoleName(c.role)} ${c.revealed ? 'dead' : ''}`}>
+                    <div className="card-icon">{getRoleIcon(c.role)}</div>
+                    <div className="card-text">{getShortRoleName(c.role)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="window">
-        <div className="title-bar">
-          <span>Game Log</span>
-        </div>
-        <div className="window-content">
-          <div className="log-box">
-            {gameState.log.map((msg, i) => (
+      {/* Sidebar for Logs and Phase */}
+      <div className={`sidebar ${isSidebarOpen ? '' : 'collapsed'}`}>
+        <button className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+          {isSidebarOpen ? '▶' : '◀'}
+        </button>
+        <div className="sidebar-content">
+          <div className="sidebar-pointer">
+            ℹ️ Click the arrow tab on the left to minimize or expand this log panel.
+          </div>
+          <div className="sidebar-header">
+            Current Phase<br/>
+            <span style={{color: 'var(--accent)', fontSize: '1.2rem'}}>{gameState.phase}</span>
+          </div>
+          <div className="global-log">
+            {localLog.map((msg, i) => (
               <div key={i}>{msg}</div>
             ))}
             <div ref={logEndRef} />
           </div>
         </div>
       </div>
+
+      {/* Exchange Phase Modal */}
+      {gameState.phase === 'EXCHANGE' && gameState.active_player === 0 && gameState.exchange_pool.length > 0 && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '600px' }}>
+            <h2>Exchange Phase</h2>
+            <p style={{fontFamily: 'VT323, monospace'}}>Select a card to <strong>RETURN</strong> to the deck.</p>
+            <div className="cards-container" style={{ justifyContent: 'center', margin: '20px 0' }}>
+              {gameState.exchange_pool.map((c, i) => {
+                const canReturn = gameState.valid_actions.some(a => a.id === 34 + i);
+                return (
+                  <div 
+                    key={c.id} 
+                    className={`playing-card role-${getShortRoleName(c.role)} ${canReturn ? 'selectable' : ''}`}
+                    onClick={() => canReturn && handleAction(34 + i)}
+                  >
+                    <div className="card-icon">{getRoleIcon(c.role)}</div>
+                    <div className="card-text">{getShortRoleName(c.role)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Game Over Modal */}
+      {gameState.winner && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h1 style={{ fontSize: '4rem', color: '#ffd166', marginBottom: '10px' }}>
+              {gameState.winner === 'You' ? '🎉 YOU WIN! 🎉' : '💀 GAME OVER 💀'}
+            </h1>
+            <p style={{ fontSize: '2rem', margin: '10px 0', fontFamily: 'VT323, monospace', fontWeight: 'bold' }}>
+              {gameState.winner === 'You' ? '1st Place!' : `${getOrdinal(gameState.player_0_placement)} Place`}
+            </p>
+            <p style={{ fontSize: '1.2rem', fontFamily: 'VT323, monospace', color: '#ccc' }}>
+              Winner: {gameState.winner}
+            </p>
+            <button onClick={restartGame} style={{ marginTop: '20px', fontSize: '1.5rem', padding: '15px 40px' }}>
+              Play Again
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

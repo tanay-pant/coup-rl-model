@@ -58,6 +58,7 @@ class TurnState:
     player_to_reveal: int = -1
     pending_action: bool = False
     resuming_from_failed_block: bool = False
+    target_passed_block: bool = False
 
     # handle the Ambassador exchange phase
     exchange_pool: List[Role] = field(default_factory=lambda: [Role.NONE] * 4)

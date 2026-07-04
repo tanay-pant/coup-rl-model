@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 import asyncio
 import traceback
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -101,7 +102,51 @@ def get_action_name(idx, agent_idx):
     
     return f"Unknown Action {idx}"
 
-def serialize_state(env, log_messages, valid_actions_mask=None, active_agent=None):
+def generate_contextual_log(env, action, agent_idx):
+    agent_name = "You" if agent_idx == 0 else f"AI {agent_idx}"
+    action_name = get_action_name(action, agent_idx)
+    
+    phase = env.state.turn.phase.name
+    
+    if phase == "START_OF_TURN":
+        return f"{agent_name} decided to {action_name}"
+    
+    if phase == "ACTION_CHALLENGE":
+        active_player = get_target_name(env.state.turn.active_player)
+        original_action = get_action_name(env.state.turn.action, env.state.turn.active_player)
+        
+        if action == 23: # Allow
+            return f"{agent_name} allowed {active_player} to {original_action}"
+        elif action == 22: # Challenge
+            return f"{agent_name} challenged {active_player}'s {original_action}!"
+            
+    if phase == "ACTION_BLOCK":
+        active_player = get_target_name(env.state.turn.active_player)
+        original_action = get_action_name(env.state.turn.action, env.state.turn.active_player)
+        
+        if action == 23: # Allow
+            return f"{agent_name} allowed {active_player} to {original_action}"
+        else: # Block
+            return f"{agent_name} blocked {active_player}'s {original_action} with {action_name.replace('Block with ', '')}"
+            
+    if phase == "BLOCK_RESPONSE":
+        blocker = get_target_name(env.state.turn.target)
+        if action == 23:
+            return f"{agent_name} accepted {blocker}'s block"
+        elif action == 22:
+            return f"{agent_name} challenged {blocker}'s block!"
+            
+    if phase == "REVEAL_INFLUENCE":
+        roles = {29: "Duke", 30: "Assassin", 31: "Captain", 32: "Ambassador", 33: "Contessa"}
+        revealed_role = roles.get(action, "Unknown")
+        return f"{agent_name} revealed a {revealed_role} and lost it!"
+        
+    if phase == "EXCHANGE":
+        return f"{agent_name} returned a card to the deck"
+
+    return f"{agent_name} chose: {action_name}"
+
+def serialize_state(env, log_messages, player_0_placement, valid_actions_mask=None, active_agent=None):
     state = env.state
     
     players = []
@@ -147,71 +192,108 @@ def serialize_state(env, log_messages, valid_actions_mask=None, active_agent=Non
         "players": players,
         "exchange_pool": pool,
         "valid_actions": valid_actions,
-        "log": log_messages[-15:], # Keep last 15 log messages
-        "winner": winner
+        "log": log_messages,
+        "winner": winner,
+        "deck_count": len(env.state.deck),
+        "player_0_placement": player_0_placement
     }
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    if loaded_policy is None:
-        await websocket.send_json({"type": "error", "message": "AI policy not loaded"})
-        await websocket.close()
-        return
+active_sessions = {}
 
-    env = CoupEnv()
-    env.reset()
-    has_state = hasattr(loaded_policy, "get_initial_state") and len(loaded_policy.get_initial_state()) > 0
-    state_map = {agent: loaded_policy.get_initial_state() if has_state else [] for agent in env.agents if agent != "player_0"}
+class GameSession:
+    def __init__(self, bot_count, loaded_policy):
+        self.env = CoupEnv()
+        self.env.reset(options={"num_players": bot_count + 1})
+        self.log_messages = ["Game Started!"]
+        self.game_active = True
+        self.player_0_placement = None
+        self.player_0_was_alive = True
+        self.action_queue = asyncio.Queue()
+        self.active_websocket = None
+        self.last_state_data = None
+        
+        has_state = hasattr(loaded_policy, "get_initial_state") and len(loaded_policy.get_initial_state()) > 0
+        self.state_map = {agent: loaded_policy.get_initial_state() if has_state else [] for agent in self.env.agents if agent != "player_0"}
+        
+    async def send_json(self, data):
+        if self.active_websocket:
+            try:
+                await self.active_websocket.send_json(data)
+            except Exception:
+                pass
+
+async def game_engine_loop(session_id: str):
+    session = active_sessions.get(session_id)
+    if not session: return
+    env = session.env
     
-    log_messages = ["Game Started!"]
-    
-    try:
+    while session.game_active:
         for agent in env.agent_iter():
+            if not session.game_active:
+                break
+                
             observation, reward, termination, truncation, info = env.last()
             
             if termination or truncation:
+                state_data = serialize_state(env, session.log_messages, session.player_0_placement, None, None)
+                if state_data["winner"] is not None:
+                    if session.player_0_was_alive:
+                        session.player_0_placement = 1
+                    session.log_messages.append(f"Game Over! Winner: {state_data['winner']}")
+                    final_state = serialize_state(env, session.log_messages, session.player_0_placement, None, None)
+                    session.last_state_data = final_state
+                    await session.send_json({
+                        "type": "state_update",
+                        "data": final_state
+                    })
+                    session.game_active = False
+                    break
                 env.step(None)
                 continue
             
             action_mask = observation["action_mask"]
             agent_idx = int(agent.split('_')[1])
             
-            state_data = serialize_state(env, log_messages, action_mask, agent_idx)
-            await websocket.send_json({
+            state_data = serialize_state(env, session.log_messages, session.player_0_placement, action_mask, agent_idx)
+            
+            if session.player_0_was_alive and not state_data["players"][0]["alive"]:
+                alive_count = sum(1 for p in state_data["players"] if p["alive"])
+                session.player_0_placement = alive_count + 1
+                session.player_0_was_alive = False
+                state_data["player_0_placement"] = session.player_0_placement
+                
+            session.last_state_data = state_data
+            await session.send_json({
                 "type": "state_update",
                 "data": state_data
             })
             
-            if state_data["winner"] is not None:
-                log_messages.append(f"Game Over! Winner: {state_data['winner']}")
-                await websocket.send_json({
-                    "type": "state_update",
-                    "data": serialize_state(env, log_messages, None, None)
-                })
-                break
-                
             if agent == "player_0":
-                while True:
-                    data = await websocket.receive_json()
+                while session.game_active:
+                    data = await session.action_queue.get()
                     if data.get("type") == "action":
                         action = data.get("action_id")
                         if action_mask[action] == 1:
-                            log_messages.append(f"You chose: {get_action_name(action, 0)}")
+                            log_msg = generate_contextual_log(env, action, 0)
+                            session.log_messages.append(log_msg)
                             env.step(action)
                             break
                         else:
-                            await websocket.send_json({"type": "error", "message": "Invalid action"})
+                            await session.send_json({"type": "error", "message": "Invalid action"})
+                    elif data.get("type") == "restart":
+                        session.game_active = False
+                        break
             else:
                 await asyncio.sleep(0.5)
+                has_state = hasattr(loaded_policy, "get_initial_state") and len(loaded_policy.get_initial_state()) > 0
                 if has_state:
                     action, state_out, info = await asyncio.to_thread(
                         loaded_policy.compute_single_action,
                         obs=observation,
-                        state=state_map[agent],
+                        state=session.state_map[agent],
                         explore=True
                     )
-                    state_map[agent] = state_out
+                    session.state_map[agent] = state_out
                 else:
                     action = await asyncio.to_thread(
                         loaded_policy.compute_single_action,
@@ -219,9 +301,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         explore=True
                     )
                 
-                # Check if action is a numpy array or tuple and extract the integer
-                # Sometimes compute_single_action returns a tuple like (action, state, info) but we already unpacked it
-                # If the action itself is a list/array with one element, extract it.
                 if isinstance(action, tuple):
                     action = int(action[0])
                 else:
@@ -230,16 +309,53 @@ async def websocket_endpoint(websocket: WebSocket):
                     except TypeError:
                         action = action.item()
 
-                agent_name = "You" if agent == "player_0" else f"AI {agent_idx}"
-                log_messages.append(f"{agent_name} chose: {get_action_name(action, agent_idx)}")
+                if action_mask[action] == 0:
+                    valid_actions = [i for i, m in enumerate(action_mask) if m == 1]
+                    if valid_actions:
+                        action = __import__('random').choice(valid_actions)
+                    else:
+                        action = 0
+
+                log_msg = generate_contextual_log(env, action, agent_idx)
+                session.log_messages.append(log_msg)
                 env.step(action)
-                
-        # Game is over, keep connection open if client wants
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
+    await websocket.accept()
+    if loaded_policy is None:
+        await websocket.send_json({"type": "error", "message": "AI policy not loaded"})
+        await websocket.close()
+        return
+
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        await websocket.send_json({"type": "session_id", "session_id": session_id})
+        
+    if session_id in active_sessions:
+        session = active_sessions[session_id]
+        session.active_websocket = websocket
+        if session.last_state_data:
+            await websocket.send_json({"type": "state_update", "data": session.last_state_data})
+    else:
+        # Lobby Phase
+        await websocket.send_json({"type": "lobby_state"})
+
+    try:
         while True:
-            await websocket.receive_text()
-            
+            data = await websocket.receive_json()
+            if data.get("type") == "start_game":
+                bot_count = int(data.get("bot_count", 2))
+                session = GameSession(bot_count, loaded_policy)
+                session.active_websocket = websocket
+                active_sessions[session_id] = session
+                asyncio.create_task(game_engine_loop(session_id))
+            elif session_id in active_sessions:
+                await active_sessions[session_id].action_queue.put(data)
     except WebSocketDisconnect:
-        print("Client disconnected gracefully")
+        print(f"Client {session_id} disconnected gracefully")
+        if session_id in active_sessions:
+            active_sessions[session_id].active_websocket = None
     except Exception as e:
         print(f"Error in websocket loop: {e}")
         traceback.print_exc()
