@@ -142,7 +142,7 @@ def generate_contextual_log(env, action, agent_idx):
         return f"{agent_name} revealed a {revealed_role} and lost it!"
         
     if phase == "EXCHANGE":
-        return f"{agent_name} returned a card to the deck"
+        return None
 
     return f"{agent_name} chose: {action_name}"
 
@@ -275,7 +275,8 @@ async def game_engine_loop(session_id: str):
                         action = data.get("action_id")
                         if action_mask[action] == 1:
                             log_msg = generate_contextual_log(env, action, 0)
-                            session.log_messages.append(log_msg)
+                            if log_msg:
+                                session.log_messages.append(log_msg)
                             was_challenge = (action == 22)
                             env.step(action)
                             if was_challenge:
@@ -325,7 +326,8 @@ async def game_engine_loop(session_id: str):
                         action = 0
 
                 log_msg = generate_contextual_log(env, action, agent_idx)
-                session.log_messages.append(log_msg)
+                if log_msg:
+                    session.log_messages.append(log_msg)
                 was_challenge = (action == 22)
                 env.step(action)
                 if was_challenge:
