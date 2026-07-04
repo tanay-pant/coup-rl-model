@@ -226,7 +226,7 @@ function App() {
 
   const restartGame = () => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: 'restart' }));
+      ws.current.send(JSON.stringify({ type: 'start_game', bot_count: botCount }));
     }
   };
 

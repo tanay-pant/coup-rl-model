@@ -235,7 +235,11 @@ async def game_engine_loop(session_id: str):
                 state_data = serialize_state(env, session.log_messages, session.player_0_placement, None, None)
                 if state_data["winner"] is not None:
                     if session.player_0_was_alive:
-                        session.player_0_placement = 1
+                        if state_data["players"][0]["alive"]:
+                            session.player_0_placement = 1
+                        else:
+                            session.player_0_placement = 2
+                            session.player_0_was_alive = False
                     session.log_messages.append(f"Game Over! Winner: {state_data['winner']}")
                     final_state = serialize_state(env, session.log_messages, session.player_0_placement, None, None)
                     session.last_state_data = final_state
