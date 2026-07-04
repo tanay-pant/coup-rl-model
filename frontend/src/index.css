@@ -286,13 +286,22 @@ button:disabled {
   box-shadow: 2px 2px 0 #000;
 }
 
-/* History Tooltip */
-.history-tooltip {
+.history-tooltip-wrapper {
   display: none;
   position: absolute;
-  top: 100%; 
+  top: 100%;
   left: 50%;
   transform: translateX(-50%);
+  padding-top: 8px;
+  z-index: 1000;
+}
+
+.player-box:hover .history-tooltip-wrapper {
+  display: block;
+}
+
+/* History Tooltip */
+.history-tooltip {
   background: #fff;
   color: #000;
   border: 2px solid #000;
@@ -303,14 +312,8 @@ button:disabled {
   overflow-y: auto;
   font-family: 'VT323', monospace;
   font-size: 1rem;
-  z-index: 1000;
   box-shadow: 4px 4px 0 #000;
-  margin-top: 8px;
   line-height: 1.3;
-}
-
-.player-box:hover .history-tooltip {
-  display: block;
 }
 
 /* Cards */

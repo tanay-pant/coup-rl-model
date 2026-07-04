@@ -116,20 +116,23 @@ def generate_contextual_log(env, action, agent_idx):
         original_action = get_action_name(env.state.turn.action, env.state.turn.active_player)
         
         if action == 23: # Allow
-            return f"{agent_name} allowed"
+            return f"{agent_name} allowed ({active_player} {original_action})"
         elif action == 22: # Challenge
             return f"{agent_name} challenged {active_player}'s {original_action}"
             
     if phase == "ACTION_BLOCK":
+        active_player = get_target_name(env.state.turn.active_player)
+        original_action = get_action_name(env.state.turn.action, env.state.turn.active_player)
+        
         if action == 23: # Allow
-            return f"{agent_name} allowed"
+            return f"{agent_name} allowed ({active_player} {original_action})"
         else: # Block
             return f"{agent_name} blocked with {action_name.replace('Block with ', '')}"
             
     if phase == "BLOCK_RESPONSE":
         blocker = get_target_name(env.state.turn.target)
         if action == 23:
-            return f"{agent_name} accepted"
+            return f"{agent_name} accepted ({blocker} Block)"
         elif action == 22:
             return f"{agent_name} challenged {blocker}'s block"
             

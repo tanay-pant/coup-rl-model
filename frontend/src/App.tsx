@@ -326,12 +326,14 @@ function App() {
             <div key={p.id} className={`player-box ${gameState.active_player === p.id ? 'active' : ''} ${!p.alive ? 'dead' : ''}`}>
               
               {/* Hover History Tooltip */}
-              <div className="history-tooltip">
-                <div style={{textAlign: 'center', marginBottom: '4px', fontWeight: 'bold', borderBottom: '1px solid #333'}}>{p.name}'s History:</div>
-                {localLog.filter(msg => msg.startsWith(p.name)).length > 0 ? 
-                  localLog.filter(msg => msg.startsWith(p.name)).map((msg, i) => <div key={i} style={{marginBottom: '3px'}}>• {msg.replace(p.name + ' ', '')}</div>)
-                  : <div style={{textAlign: 'center'}}>No actions yet</div>
-                }
+              <div className="history-tooltip-wrapper">
+                <div className="history-tooltip">
+                  <div style={{textAlign: 'center', marginBottom: '4px', fontWeight: 'bold', borderBottom: '1px solid #333'}}>{p.name}'s History:</div>
+                  {localLog.filter(msg => msg.startsWith(p.name)).length > 0 ? 
+                    localLog.filter(msg => msg.startsWith(p.name)).map((msg, i) => <div key={i} style={{marginBottom: '3px'}}>• {msg.replace(p.name + ' ', '')}</div>)
+                    : <div style={{textAlign: 'center'}}>No actions yet</div>
+                  }
+                </div>
               </div>
 
               <div className="player-header">
