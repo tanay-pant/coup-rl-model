@@ -542,7 +542,7 @@ class CoupEnv(AECEnv):
         random.shuffle(others)
         self.intervention_queue = others
         
-        if target != -1 and self.state.players.get(target, PlayerState(cash=0, influence_count=0)).influence_count > 0:
+        if self.state.turn.phase != Phase.BLOCK_RESPONSE and target != -1 and self.state.players.get(target, PlayerState(cash=0, influence_count=0)).influence_count > 0:
             self.intervention_queue.append(target)
             
         self._advance_intervention_window()
