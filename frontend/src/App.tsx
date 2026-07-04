@@ -102,7 +102,7 @@ const parseLogToSnippet = (msg: string) => {
   else if (msg.includes('Exchange')) icon = '📜';
   else if (msg.includes('Steal')) icon = '🎭';
 
-  const shortMsg = msg.replace('decided to ', '').replace('chose: ', '');
+  const shortMsg = msg.replace('decided to ', '').replace('chose: ', '').replace(/\s*\([^)]*\)/, '');
   return `${icon} ${shortMsg}`;
 };
 

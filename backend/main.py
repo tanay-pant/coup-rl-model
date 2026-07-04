@@ -131,10 +131,12 @@ def generate_contextual_log(env, action, agent_idx):
             
     if phase == "BLOCK_RESPONSE":
         blocker = get_target_name(env.state.turn.target)
+        active_player = get_target_name(env.state.turn.active_player)
+        original_action = get_action_name(env.state.turn.action, env.state.turn.active_player)
         if action == 23:
-            return f"{agent_name} accepted ({blocker} Block)"
+            return f"{agent_name} accepted ({blocker} block {active_player} {original_action})"
         elif action == 22:
-            return f"{agent_name} challenged {blocker}'s block"
+            return f"{agent_name} challenged {blocker}'s block ({active_player} {original_action})"
             
     if phase == "REVEAL_INFLUENCE":
         roles = {29: "Duke", 30: "Assassin", 31: "Captain", 32: "Ambassador", 33: "Contessa"}
