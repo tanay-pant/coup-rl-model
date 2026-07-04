@@ -74,9 +74,18 @@ def startup_event():
 def health_check():
     return {"status": "ok"}
 
+NAMES = ["You", "Abe", "Bart", "Charlie", "Dave", "Eve"]
+
+def possessive(name):
+    if name == "You":
+        return "Your"
+    if name.endswith("s"):
+        return f"{name}'"
+    return f"{name}'s"
+
 def get_target_name(target_idx):
-    if target_idx == 0:
-        return "You"
+    if 0 <= target_idx < len(NAMES):
+        return NAMES[target_idx]
     return f"AI {target_idx}"
 
 def get_action_name(idx, agent_idx):
@@ -103,7 +112,7 @@ def get_action_name(idx, agent_idx):
     return f"Unknown Action {idx}"
 
 def generate_contextual_log(env, action, agent_idx):
-    agent_name = "You" if agent_idx == 0 else f"AI {agent_idx}"
+    agent_name = get_target_name(agent_idx)
     action_name = get_action_name(action, agent_idx)
     
     phase = env.state.turn.phase.name
@@ -118,7 +127,7 @@ def generate_contextual_log(env, action, agent_idx):
         if action == 23: # Allow
             return f"{agent_name} allowed ({active_player} {original_action})"
         elif action == 22: # Challenge
-            return f"{agent_name} challenged {active_player}'s {original_action}"
+            return f"{agent_name} challenged {possessive(active_player)} {original_action}"
             
     if phase == "ACTION_BLOCK":
         active_player = get_target_name(env.state.turn.active_player)
@@ -136,7 +145,7 @@ def generate_contextual_log(env, action, agent_idx):
         if action == 23:
             return f"{agent_name} accepted ({blocker} block {active_player} {original_action})"
         elif action == 22:
-            return f"{agent_name} challenged {blocker}'s block ({active_player} {original_action})"
+            return f"{agent_name} challenged {possessive(blocker)} block ({active_player} {original_action})"
             
     if phase == "REVEAL_INFLUENCE":
         roles = {29: "Duke", 30: "Assassin", 31: "Captain", 32: "Ambassador", 33: "Contessa"}
@@ -165,7 +174,7 @@ def serialize_state(env, log_messages, player_0_placement, valid_actions_mask=No
         
         players.append({
             "id": i,
-            "name": "You" if i == 0 else f"AI {i}",
+            "name": get_target_name(i),
             "cash": p.cash,
             "cards": cards,
             "alive": p.influence_count > 0
