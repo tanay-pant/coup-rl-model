@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './index.css';
+import { initAudio, setMuted, Sounds } from './audio';
 
 interface Card {
   role: string;
@@ -114,6 +115,14 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [botCount, setBotCount] = useState<number>(3);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
+  const [isMuted, setIsMutedState] = useState(true);
+
+  const toggleMute = () => {
+    const newMuted = !isMuted;
+    setIsMutedState(newMuted);
+    setMuted(newMuted);
+    if (!newMuted) initAudio();
+  };
   
   const ws = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -162,6 +171,14 @@ function App() {
       lastLogLength.current = localLog.length;
       
       const parsedLogs = newLogs.map(log => {
+        const lowerLog = log.toLowerCase();
+        if (lowerLog.includes('allow') || lowerLog.includes('accept')) Sounds.success();
+        else if (lowerLog.includes('block')) Sounds.thud();
+        else if (lowerLog.includes('challeng') || lowerLog.includes('reveal')) Sounds.alert();
+        else if (lowerLog.includes('assassinate') || lowerLog.includes('coup')) Sounds.stab();
+        else if (lowerLog.includes('exchange')) Sounds.shuffle();
+        else if (lowerLog.includes('income') || lowerLog.includes('foreign aid') || lowerLog.includes('tax') || lowerLog.includes('steal')) Sounds.coin();
+
         return { id: logIdCounter.current++, text: parseLogToSnippet(log), original: log };
       });
       
@@ -300,25 +317,43 @@ function App() {
     <div className="main-wrapper">
       <div className="app-container">
         
-        <button 
-          onClick={resetGame} 
-          style={{
-            position: 'absolute', 
-            top: '10px', 
-            left: '10px', 
-            zIndex: 1000, 
-            background: '#ef476f', 
-            color: 'white', 
-            border: '2px solid #fff', 
-            padding: '5px 10px', 
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontFamily: 'VT323, monospace',
-            fontSize: '1.2rem'
-          }}
-        >
-          Reset Game
-        </button>
+        <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button 
+            onClick={resetGame} 
+            style={{
+              background: '#ef476f', 
+              color: 'white', 
+              border: '2px solid #fff', 
+              padding: '5px 10px', 
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontFamily: 'VT323, monospace',
+              fontSize: '1.2rem'
+            }}
+          >
+            Reset Game
+          </button>
+          
+          <button 
+            onClick={toggleMute} 
+            style={{
+              background: isMuted ? '#6c757d' : '#06d6a0', 
+              color: 'white', 
+              border: '2px solid #fff', 
+              padding: '5px 10px', 
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontFamily: 'VT323, monospace',
+              fontSize: '1.2rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '5px'
+            }}
+          >
+            {isMuted ? '🔇 Audio Off' : '🔊 Audio On'}
+          </button>
+        </div>
 
         {/* Opponents Row */}
         <div className="opponents-row">
@@ -383,7 +418,7 @@ function App() {
                   }
                   
                   return (
-                    <button key={action.id} className="action-btn" onClick={() => handleAction(action.id)}>
+                    <button key={action.id} className="action-btn" onClick={() => handleAction(action.id)} onMouseEnter={() => Sounds.hover()}>
                       <span style={{ fontSize: '1.5rem' }}>{getActionIcon(action.name)}</span> {action.name}
                       {tooltipText && (
                         <span className="action-tooltip-wrapper">
