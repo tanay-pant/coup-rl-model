@@ -20,7 +20,7 @@ import csv
 from ray.rllib.env.wrappers.pettingzoo_env import PettingZooEnv
 from envs.coup.coup_env import CoupEnv
 
-from agents.league_policies import RandomHeuristicPolicy, HonestHeuristicPolicy, AggressiveHeuristicPolicy, CowardHeuristicPolicy, TerminatorHeuristicPolicy, TrackerHeuristicPolicy, RationalHeuristicPolicy
+from agents.league_policies import RandomHeuristicPolicy, HonestHeuristicPolicy, AggressiveHeuristicPolicy, CowardHeuristicPolicy, TerminatorHeuristicPolicy, TrackerHeuristicPolicy, RationalHeuristicPolicy, PathologicalLiarPolicy
 from scripts.train_lstm import CoupActionMaskLSTM
 
 class CoupTrainingCallback(DefaultCallbacks):
@@ -103,37 +103,34 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
         
     iteration = worker.global_vars.get("training_iteration", 0) if worker and hasattr(worker, "global_vars") else 0
     
-    # Decay heuristics from 20% to 5% by iteration 25000
-    if iteration <= 25000:
-        heuristic_prob = 0.20 - (0.15 * (iteration / 25000.0))
-    else:
-        heuristic_prob = 0.05
+    # Locked heuristic probability at 20% to prevent FSP stagnation
+    heuristic_prob = 0.20
         
     fsp_prob = 1.0 - heuristic_prob
     
     r = random.random()
     if r > fsp_prob:
-        # Heuristic bot
+        # Heuristic bot (40% Rational, 15% Liar, 15% Aggressive, 10% Honest, 10% Tracker, 10% Coward)
         h = random.random()
-        if h < 1/6: return "rational_policy"
-        elif h < 2/6: return "honest_policy"
-        elif h < 3/6: return "aggressive_policy"
-        elif h < 4/6: return "coward_policy"
-        elif h < 5/6: return "terminator_policy"
-        else: return "tracker_policy"
+        if h < 0.40: return "rational_policy"
+        elif h < 0.55: return "liar_policy"
+        elif h < 0.70: return "aggressive_policy"
+        elif h < 0.80: return "honest_policy"
+        elif h < 0.90: return "tracker_policy"
+        else: return "coward_policy"
     else:
         # FSP bot (normalize r to [0, 1) within the FSP block)
         fsp_r = r / fsp_prob
-        if fsp_r < 0.20: return "main_policy"
-        elif fsp_r < 0.28: return "past_policy_1"
-        elif fsp_r < 0.36: return "past_policy_2"
-        elif fsp_r < 0.44: return "past_policy_3"
-        elif fsp_r < 0.52: return "past_policy_4"
-        elif fsp_r < 0.60: return "past_policy_5"
-        elif fsp_r < 0.68: return "past_policy_6"
-        elif fsp_r < 0.76: return "past_policy_7"
-        elif fsp_r < 0.84: return "past_policy_8"
-        elif fsp_r < 0.92: return "past_policy_9"
+        if fsp_r < 0.50: return "main_policy"
+        elif fsp_r < 0.55: return "past_policy_1"
+        elif fsp_r < 0.60: return "past_policy_2"
+        elif fsp_r < 0.65: return "past_policy_3"
+        elif fsp_r < 0.70: return "past_policy_4"
+        elif fsp_r < 0.75: return "past_policy_5"
+        elif fsp_r < 0.80: return "past_policy_6"
+        elif fsp_r < 0.85: return "past_policy_7"
+        elif fsp_r < 0.90: return "past_policy_8"
+        elif fsp_r < 0.95: return "past_policy_9"
         else: return "past_policy_10"
 
 def env_creator(config):
@@ -172,7 +169,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
             enable_rl_module_and_learner=False,
             enable_env_runner_and_connector_v2=False,
         )
-        .env_runners(num_env_runners=num_workers, num_envs_per_env_runner=10)
+        .env_runners(num_env_runners=num_workers, num_envs_per_env_runner=50)
         .training(
             num_sgd_iter=5,
             gamma=0.995,
@@ -190,7 +187,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
             ],
             model={
                 "custom_model": "coup_mask_lstm",
-                "max_seq_len": 150, 
+                "max_seq_len": 80, 
             }
         )
         .callbacks(CoupTrainingCallback)
@@ -214,6 +211,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
                 "coward_policy": PolicySpec(policy_class=CowardHeuristicPolicy, observation_space=obs_space, action_space=act_space),
                 "terminator_policy": PolicySpec(policy_class=TerminatorHeuristicPolicy, observation_space=obs_space, action_space=act_space),
                 "tracker_policy": PolicySpec(policy_class=TrackerHeuristicPolicy, observation_space=obs_space, action_space=act_space),
+                "liar_policy": PolicySpec(policy_class=PathologicalLiarPolicy, observation_space=obs_space, action_space=act_space),
             },
             policy_mapping_fn=policy_mapping_fn,
             policies_to_train=["main_policy"]
@@ -225,7 +223,7 @@ def setup_rllib_config(env_name="coup_parallel_v0", num_workers=6, use_pbt=False
 def train_coup():
     ray.init()
 
-    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_lstm_advanced'))
+    checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'checkpoints_lstm_advanced_v2'))
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     def get_latest_checkpoint(ckpt_dir):
@@ -260,6 +258,10 @@ def train_coup():
         algo = config.build_algo()
         algo.restore(latest_ckpt)
         
+        # CRITICAL FIX: Ensure rollout workers receive the latest FSP weights from the checkpoint.
+        # Ray's restore() might only sync `policies_to_train`. This forces non-trainable bots to sync.
+        algo.env_runner_group.sync_weights(policies=["main_policy"] + [f"past_policy_{j}" for j in range(1, 11)])
+        
         # Ensure rollout workers know they are not at iteration 0 so FSP scheduling doesn't reset
         # CRITICAL FIX: We MUST also sync the global timestep so the learning rate schedule doesn't 
         # evaluate to iteration 0 (1e-4) for the first gradient step, which destroys the mature policy!
@@ -273,12 +275,7 @@ def train_coup():
         # Force the policy to evaluate its LR schedule against the true timestep immediately
         algo.get_policy("main_policy").on_global_var_update({"timestep": true_timestep})
         
-        # CRITICAL FIX 2: If the kl_coeff decayed to 0.0 in the checkpoint, resuming without a KL 
-        # penalty allows the first gradient step to completely shatter the policy (especially with clip=0.3).
-        # We force it back to a safe default of 0.2 to constrain the policy during the resumption warmup.
-        if hasattr(algo.get_policy("main_policy"), "kl_coeff"):
-            if algo.get_policy("main_policy").kl_coeff < 0.1:
-                algo.get_policy("main_policy").kl_coeff = 0.2
+        # (Removed the kl_coeff override because it conflicts with our high entropy_coeff shock therapy, causing catastrophic interference on the first gradient step)
     else:
         print("No checkpoint found. Starting from scratch...")
         algo = config.build_algo()
@@ -350,6 +347,9 @@ def train_coup():
             algo.get_policy("past_policy_3").set_weights(algo.get_policy("past_policy_2").get_weights())
             algo.get_policy("past_policy_2").set_weights(algo.get_policy("past_policy_1").get_weights())
             algo.get_policy("past_policy_1").set_weights(main_weights)
+            
+            # CRITICAL FIX: Sync the newly rotated weights to the rollout workers!
+            algo.env_runner_group.sync_weights(policies=[f"past_policy_{j}" for j in range(1, 11)])
 
     log_file.close()
     print("Training Complete.")

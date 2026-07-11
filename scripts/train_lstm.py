@@ -83,15 +83,15 @@ class CoupActionMaskLSTM(TorchModelV2, nn.Module):
         nn.Module.__init__(self)
 
         input_dim = 184
-        self.lstm_state_size = 512
+        self.lstm_state_size = 256
 
         self.fc = nn.Sequential(
-            nn.Linear(input_dim, 512),
+            nn.Linear(input_dim, 256),
             nn.ReLU(),
         )
         
         self.lstm = nn.LSTM(
-            input_size=512,
+            input_size=256,
             hidden_size=self.lstm_state_size,
             batch_first=True
         )

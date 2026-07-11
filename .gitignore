@@ -1,13 +1,12 @@
 venv/
 __pycache__/
 .DS_Store
-checkpoints/
-checkpoints_pbt/
 checkpoints_rllib/
 checkpoints_lstm/
-checkpoints_lstm_pbt/
 checkpoints_lstm_advanced/*
 !checkpoints_lstm_advanced/checkpoint_50000/
+checkpoints_lstm_advanced_v2/*
+!checkpoints_lstm_advanced_v2/checkpoint_50000/
 
 # Frontend (Vite)
 logs
@@ -31,4 +30,5 @@ frontend/dist-ssr/
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+*.sw?training_lstm_advanced_log.csv
+watch_bots_output.txt

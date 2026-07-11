@@ -258,30 +258,16 @@ class RationalHeuristicPolicy(HonestHeuristicPolicy):
             has_ambassador = flat_obs[5] > 0.5 or flat_obs[10] > 0.5
             has_contessa = flat_obs[6] > 0.5 or flat_obs[11] > 0.5
             
-            # Suggestion 1: Context-Aware Challenges
+            # Suggestion 1: Context-Aware Challenges using 'ego_over_claiming'
             if 22 in legal_actions:
                 challenge_prob = 0.15 # Base rate
                 
-                # Check recent event log (last 10 events, 30 elements)
-                recent_events = flat_obs[-30:]
-                last_action = -1
-                for i in range(27, -1, -3):
-                    if recent_events[i] != -1:
-                        last_action = recent_events[i+1]
-                        break
-                        
-                claimed_role_idx = -1
-                if last_action == 2 or last_action == 24 or last_action == 29: claimed_role_idx = 0 # Duke
-                elif 10 <= last_action <= 14 or last_action == 30: claimed_role_idx = 1 # Assassin
-                elif 4 <= last_action <= 9 or last_action == 25 or last_action == 31: claimed_role_idx = 2 # Captain
-                elif last_action == 3 or last_action == 28 or last_action == 32: claimed_role_idx = 3 # Ambassador
-                elif last_action == 27 or last_action == 33: claimed_role_idx = 4 # Contessa
+                # Check if ANY opponent is currently over-claiming (Indices 137 to 142 in flat_obs)
+                # Note: Index 137 is ego (self), 138 is offset 1, etc.
+                is_anyone_over_claiming = np.any(flat_obs[138:143] > 0.5)
                 
-                if claimed_role_idx == 0 and has_duke: challenge_prob = 0.40
-                elif claimed_role_idx == 1 and has_assassin: challenge_prob = 0.40
-                elif claimed_role_idx == 2 and has_captain: challenge_prob = 0.40
-                elif claimed_role_idx == 3 and has_ambassador: challenge_prob = 0.40
-                elif claimed_role_idx == 4 and has_contessa: challenge_prob = 0.40
+                if is_anyone_over_claiming:
+                    challenge_prob = 1.00 # Punish over-claimers heavily
                 
                 if np.random.random() < challenge_prob:
                     actions.append(22)
@@ -349,4 +335,42 @@ class RationalHeuristicPolicy(HonestHeuristicPolicy):
             else:
                 actions.append(int(np.random.choice(legal_actions)))
                 
+        return np.array(actions), [], {}
+
+class PathologicalLiarPolicy(RandomHeuristicPolicy):
+    def compute_actions(self, obs_batch, *args, **kwargs):
+        actions = []
+        for obs in obs_batch:
+            if isinstance(obs, dict):
+                action_mask = obs["action_mask"]
+            else:
+                action_mask = obs[:38]
+                
+            legal_actions = list(np.where(action_mask > 0.5)[0])
+            if len(legal_actions) == 0:
+                actions.append(0)
+                continue
+                
+            chosen_action = None
+            if 27 in legal_actions: # Block with Contessa
+                chosen_action = 27
+            elif 2 in legal_actions: # Tax
+                chosen_action = 2
+            else:
+                assassinations = [a for a in legal_actions if 10 <= a <= 15]
+                if assassinations:
+                    chosen_action = int(np.random.choice(assassinations))
+                else:
+                    steals = [a for a in legal_actions if 4 <= a <= 9]
+                    if steals:
+                        chosen_action = int(np.random.choice(steals))
+            
+            if chosen_action is None:
+                if 23 in legal_actions: # Allow
+                    chosen_action = 23
+                else:
+                    chosen_action = int(np.random.choice(legal_actions))
+                    
+            actions.append(chosen_action)
+            
         return np.array(actions), [], {}
