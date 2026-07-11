@@ -104,7 +104,10 @@ const parseLogToSnippet = (msg: string) => {
   else if (msg.includes('Exchange')) icon = '📜';
   else if (msg.includes('Steal')) icon = '⚓';
 
-  const shortMsg = msg.replace('decided to ', '').replace('chose: ', '').replace(/\s*\([^)]*\)/, '');
+  let shortMsg = msg.replace('decided to ', '').replace('chose: ', '').replace(/\s*\([^)]*\)/, '');
+  if (shortMsg.includes('blocked') && shortMsg.includes('with')) {
+    shortMsg = shortMsg.replace(/blocked .* with/, 'blocked with');
+  }
   return `${icon} ${shortMsg}`;
 };
 

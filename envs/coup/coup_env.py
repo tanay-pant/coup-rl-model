@@ -61,7 +61,7 @@ class CoupEnv(AECEnv):
         self._cumulative_rewards = {agent: 0 for agent in self.agents}
         self.players_eliminated = 0
         self.winner_pot = 0.0
-        self.elimination_step = 0.9 / max(1, self.num_players - 2)
+        self.elimination_step = 0.4 / max(1, self.num_players - 2)
         self.num_moves = 0
 
         # Initialize Game State
@@ -384,6 +384,7 @@ class CoupEnv(AECEnv):
             self._open_challenge_window(initiator=player)
         elif action in range(16, 21):  # Coup
             p_state.cash -= 7
+            self._record_grudge(initiator=player, target=target)
             self.state.turn.phase = Phase.REVEAL_INFLUENCE
             self.state.turn.player_to_reveal = target
             self.agent_selection = f"player_{target}"
@@ -604,7 +605,10 @@ class CoupEnv(AECEnv):
             active_cards = [
                 inf.role for inf in p_state.influence if not inf.revealed]
             drawn_cards = [self.state.deck.pop(), self.state.deck.pop()]
-            self.state.turn.exchange_pool = active_cards + drawn_cards
+            pool = active_cards + drawn_cards
+            while len(pool) < 4:
+                pool.append(Role.NONE)
+            self.state.turn.exchange_pool = pool
             self.state.turn.exchange_returns_left = 2
             self.state.turn.phase = Phase.EXCHANGE
             self.agent_selection = f"player_{initiator}"
@@ -665,6 +669,9 @@ class CoupEnv(AECEnv):
             random.shuffle(self.state.deck)
             challenged_state.influence[matching_card_idx].role = self.state.deck.pop(
             )
+            
+            # Fix Ghost Claims: The proven card was shuffled away, they no longer definitively have it.
+            self.active_claims[challenged][claimed_role.value] = 0
 
             if not challenging_block:
                 self.state.turn.pending_action = True

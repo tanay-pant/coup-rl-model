@@ -128,6 +128,8 @@ def generate_contextual_log(env, action, agent_idx):
             return f"{agent_name} allowed ({active_player} {original_action})"
         elif action == 22: # Challenge
             return f"{agent_name} challenged {possessive(active_player)} {original_action}"
+        elif action in [24, 25, 27, 28]: # Block
+            return f"{agent_name} blocked {possessive(active_player)} {original_action} with {action_name.replace('Block with ', '')}"
             
     if phase == "ACTION_BLOCK":
         active_player = get_target_name(env.state.turn.active_player)
@@ -136,7 +138,7 @@ def generate_contextual_log(env, action, agent_idx):
         if action == 23: # Allow
             return f"{agent_name} allowed ({active_player} {original_action})"
         else: # Block
-            return f"{agent_name} blocked with {action_name.replace('Block with ', '')}"
+            return f"{agent_name} blocked {possessive(active_player)} {original_action} with {action_name.replace('Block with ', '')}"
             
     if phase == "BLOCK_RESPONSE":
         blocker = get_target_name(env.state.turn.target)
