@@ -73,7 +73,7 @@ const getActionIcon = (name: string) => {
   if (name.includes('Exchange')) return '📜';
   if (name.includes('Steal')) return '⚓';
   if (name.includes('Assassinate')) return '🗡️';
-  if (name.includes('Coup')) return '⚔️';
+  if (name.includes('Coup')) return '💀';
   if (name.includes('Challenge')) return '🗣️';
   if (name.includes('Allow')) return '👍';
   if (name.includes('Block')) return '🛡️';
@@ -96,12 +96,13 @@ const parseLogToSnippet = (msg: string) => {
   else if (msg.includes('challeng')) icon = '🗣️';
   else if (msg.includes('reveal')) icon = '👁️';
   // Primary actions
-  else if (msg.includes('Assassinate') || msg.includes('Coup')) icon = '🗡️';
+  else if (msg.includes('Assassinate')) icon = '🗡️';
+  else if (msg.includes('Coup')) icon = '💀';
   else if (msg.includes('Income')) icon = '💰';
   else if (msg.includes('Foreign Aid')) icon = '💸';
   else if (msg.includes('Tax')) icon = '🎩';
   else if (msg.includes('Exchange')) icon = '📜';
-  else if (msg.includes('Steal')) icon = '🎭';
+  else if (msg.includes('Steal')) icon = '⚓';
 
   const shortMsg = msg.replace('decided to ', '').replace('chose: ', '').replace(/\s*\([^)]*\)/, '');
   return `${icon} ${shortMsg}`;
@@ -115,7 +116,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [botCount, setBotCount] = useState<number>(3);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
-  const [isMuted, setIsMutedState] = useState(true);
+  const [isMuted, setIsMutedState] = useState(false);
+  const [showFullRules, setShowFullRules] = useState(false);
+  const [showShortcut, setShowShortcut] = useState(false);
 
   const toggleMute = () => {
     const newMuted = !isMuted;
@@ -175,9 +178,13 @@ function App() {
         if (lowerLog.includes('allow') || lowerLog.includes('accept')) Sounds.success();
         else if (lowerLog.includes('block')) Sounds.thud();
         else if (lowerLog.includes('challeng') || lowerLog.includes('reveal')) Sounds.alert();
-        else if (lowerLog.includes('assassinate') || lowerLog.includes('coup')) Sounds.stab();
+        else if (lowerLog.includes('assassinate')) Sounds.assassinate();
+        else if (lowerLog.includes('coup')) Sounds.coup();
         else if (lowerLog.includes('exchange')) Sounds.shuffle();
-        else if (lowerLog.includes('income') || lowerLog.includes('foreign aid') || lowerLog.includes('tax') || lowerLog.includes('steal')) Sounds.coin();
+        else if (lowerLog.includes('income')) Sounds.income();
+        else if (lowerLog.includes('foreign aid')) Sounds.foreignAid();
+        else if (lowerLog.includes('tax')) Sounds.duke();
+        else if (lowerLog.includes('steal')) Sounds.steal();
 
         return { id: logIdCounter.current++, text: parseLogToSnippet(log), original: log };
       });
@@ -236,6 +243,7 @@ function App() {
   };
 
   const startGame = () => {
+    initAudio(); // Required to bypass browser auto-play policy
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({ type: 'start_game', bot_count: botCount }));
     }
@@ -278,24 +286,74 @@ function App() {
 
   if (appState === 'lobby') {
     return (
-      <div className="modal-overlay">
-        <div className="modal-content">
-          <h1>Coup RL</h1>
-          <p>Select number of AI opponents:</p>
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', margin: '20px 0' }}>
-            {[2, 3, 4, 5].map(n => (
-              <button 
-                key={n} 
-                onClick={() => setBotCount(n)}
-                style={{ backgroundColor: botCount === n ? 'var(--accent)' : '#2b2d42' }}
-              >
-                {n} Bots
-              </button>
-            ))}
-          </div>
-          <button onClick={startGame} style={{ fontSize: '1.5rem', padding: '15px 30px' }}>Deal Cards</button>
+      <>
+        <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 2002, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button 
+            onClick={toggleMute} 
+            onMouseEnter={() => Sounds.hover()}
+            style={{
+              background: isMuted ? '#6c757d' : '#06d6a0', 
+              color: 'white', 
+              border: '2px solid #fff', 
+              padding: '5px 10px', 
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontFamily: 'VT323, monospace',
+              fontSize: '1.2rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '5px'
+            }}
+          >
+            {isMuted ? '🔇 Audio Off' : '🔊 Audio On'}
+          </button>
+          <button 
+            onClick={() => setShowFullRules(true)} 
+            onMouseEnter={() => Sounds.hover()}
+            style={{
+              background: '#ffb703', 
+              color: '#000', 
+              border: '2px solid #fff', 
+              padding: '5px 10px', 
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontFamily: 'VT323, monospace',
+              fontSize: '1.2rem'
+            }}
+          >
+            Official Coup Rules
+          </button>
         </div>
-      </div>
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h1>Coup RL</h1>
+            <p>Select number of AI opponents:</p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', margin: '20px 0' }}>
+              {[2, 3, 4, 5].map(n => (
+                <button 
+                  key={n} 
+                  onClick={() => setBotCount(n)}
+                  onMouseEnter={() => Sounds.hover()}
+                  style={{ backgroundColor: botCount === n ? 'var(--accent)' : '#2b2d42' }}
+                >
+                  {n} Bots
+                </button>
+              ))}
+            </div>
+            <button onClick={startGame} onMouseEnter={() => Sounds.hover()} style={{ fontSize: '1.5rem', padding: '15px 30px' }}>Deal Cards</button>
+          </div>
+        </div>
+
+        {showFullRules && (
+          <div className="modal-overlay" style={{ zIndex: 3000 }} onClick={() => setShowFullRules(false)}>
+            <div className="modal-content" style={{ width: '90%', height: '90%', padding: '40px 10px 10px 10px', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+              <button onClick={() => setShowFullRules(false)} style={{ position: 'absolute', top: 10, right: 10, zIndex: 3001, background: '#ef476f', color: '#fff', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'VT323' }}>Close</button>
+              <iframe src="/rules_complete.pdf" width="100%" height="100%" style={{ border: 'none', borderRadius: '8px', flexGrow: 1 }} />
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
@@ -317,9 +375,10 @@ function App() {
     <div className="main-wrapper">
       <div className="app-container">
         
-        <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 2002, display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <button 
             onClick={resetGame} 
+            onMouseEnter={() => Sounds.hover()}
             style={{
               background: '#ef476f', 
               color: 'white', 
@@ -336,6 +395,7 @@ function App() {
           
           <button 
             onClick={toggleMute} 
+            onMouseEnter={() => Sounds.hover()}
             style={{
               background: isMuted ? '#6c757d' : '#06d6a0', 
               color: 'white', 
@@ -352,6 +412,23 @@ function App() {
             }}
           >
             {isMuted ? '🔇 Audio Off' : '🔊 Audio On'}
+          </button>
+          
+          <button 
+            onClick={() => setShowShortcut(true)} 
+            onMouseEnter={() => Sounds.hover()}
+            style={{
+              background: '#ffb703', 
+              color: '#000', 
+              border: '2px solid #fff', 
+              padding: '5px 10px', 
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontFamily: 'VT323, monospace',
+              fontSize: '1.2rem'
+            }}
+          >
+            How to play
           </button>
         </div>
 
@@ -520,13 +597,20 @@ function App() {
             <p style={{ fontSize: '1.2rem', fontFamily: 'VT323, monospace', color: '#ccc' }}>
               Winner: {gameState.winner}
             </p>
-            <button onClick={restartGame} style={{ marginTop: '20px', fontSize: '1.5rem', padding: '15px 40px' }}>
+            <button onClick={restartGame} onMouseEnter={() => Sounds.hover()} style={{ marginTop: '20px', fontSize: '1.5rem', padding: '15px 40px' }}>
               Play Again
             </button>
           </div>
         </div>
       )}
 
+      {showShortcut && (
+        <div className="modal-overlay" style={{ zIndex: 3000 }} onClick={() => setShowShortcut(false)}>
+          <div className="modal-content" style={{ width: '90%', maxWidth: '800px', padding: '10px' }}>
+            <img src="/rules_shortcut.jpg" alt="Rules Shortcut" style={{ width: '100%', borderRadius: '8px', display: 'block' }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
