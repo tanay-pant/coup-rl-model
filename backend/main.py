@@ -193,7 +193,7 @@ class GameSession:
         for agent in self.env.agents:
             if agent != "player_0":
                 agent_idx = int(agent.split("_")[1])
-                self.bots[agent] = ISMCTSBot(agent_id=agent_idx, num_simulations=1000, max_time=1.0)
+                self.bots[agent] = ISMCTSBot(agent_id=agent_idx, num_simulations=10000, max_time=0.5)
         
     async def send_json(self, data):
         if self.active_websocket:
