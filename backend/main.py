@@ -58,7 +58,7 @@ def startup_event():
         print("Initializing Ray...")
         ray.init(ignore_reinit_error=True, runtime_env={"py_modules": [envs_dir, scripts_dir, agents_dir]})
     
-    checkpoint_dir = os.path.join(base_dir, "checkpoints_lstm_advanced")
+    checkpoint_dir = os.path.join(base_dir, "checkpoints_lstm_advanced_v2")
     load_dir = get_latest_checkpoint(checkpoint_dir)
     if load_dir:
         policy_dir = os.path.join(load_dir, "policies", "main_policy")
