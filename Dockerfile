@@ -8,8 +8,7 @@ RUN apt-get update && apt-get install -y git build-essential && rm -rf /var/lib/
 
 # Copy requirements and install
 COPY requirements.txt .
-# Add web dependencies missing from original requirements
-RUN pip install --no-cache-dir -r requirements.txt fastapi "uvicorn[standard]" websockets
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the entire project
 COPY . .

@@ -34,7 +34,7 @@ interface GameState {
 
 type AppState = 'connecting' | 'lobby' | 'playing';
 
-const WS_URL = "wss://ptanay-coup-rl-backend.hf.space/ws";
+const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws';
 
 const toTitleCase = (str: string) => {
   if (!str || str === 'HIDDEN') return 'HIDDEN';

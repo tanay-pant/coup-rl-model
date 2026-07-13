@@ -5,14 +5,12 @@ import asyncio
 import traceback
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-import ray
-from ray.rllib.policy.policy import Policy
-from ray.rllib.models import ModelCatalog
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from envs.coup.coup_env import CoupEnv
-from scripts.train_lstm import CoupActionMaskLSTM
-from scripts.train_rllib import CoupActionMaskModel
+from agents.ismcts import ISMCTSBot
 
 app = FastAPI()
 
@@ -29,46 +27,9 @@ envs_dir = os.path.join(base_dir, "envs")
 scripts_dir = os.path.join(base_dir, "scripts")
 agents_dir = os.path.join(base_dir, "agents")
 
-ModelCatalog.register_custom_model("coup_mask_lstm", CoupActionMaskLSTM)
-ModelCatalog.register_custom_model("coup_mask_model", CoupActionMaskModel)
-
-loaded_policy = None
-
-def get_latest_checkpoint(checkpoint_dir):
-    if not os.path.exists(checkpoint_dir):
-        return None
-    highest_idx = -1
-    checkpoint_path = None
-    for root, dirs, files in os.walk(checkpoint_dir):
-        for d in dirs:
-            if d.startswith("checkpoint_"):
-                try:
-                    idx = int(d.split("_")[1])
-                    if idx > highest_idx:
-                        highest_idx = idx
-                        checkpoint_path = os.path.join(root, d)
-                except ValueError:
-                    continue
-    return checkpoint_path
-
 @app.on_event("startup")
 def startup_event():
-    global loaded_policy
-    if not ray.is_initialized():
-        print("Initializing Ray...")
-        ray.init(ignore_reinit_error=True, runtime_env={"py_modules": [envs_dir, scripts_dir, agents_dir]})
-    
-    checkpoint_dir = os.path.join(base_dir, "checkpoints_lstm_advanced_v2")
-    load_dir = get_latest_checkpoint(checkpoint_dir)
-    if load_dir:
-        policy_dir = os.path.join(load_dir, "policies", "main_policy")
-        if os.path.exists(policy_dir):
-            print(f"Loading Policy from: {policy_dir}")
-            loaded_policy = Policy.from_checkpoint(policy_dir)
-        else:
-            print(f"WARNING: No policy found at {policy_dir}")
-    else:
-        print("WARNING: No checkpoint found!")
+    print("Backend started with ISMCTS!")
 
 @app.get("/health")
 def health_check():
@@ -217,7 +178,7 @@ def serialize_state(env, log_messages, player_0_placement, valid_actions_mask=No
 active_sessions = {}
 
 class GameSession:
-    def __init__(self, bot_count, loaded_policy):
+    def __init__(self, bot_count):
         self.env = CoupEnv()
         self.env.reset(options={"num_players": bot_count + 1})
         self.log_messages = ["Game Started!"]
@@ -228,8 +189,11 @@ class GameSession:
         self.active_websocket = None
         self.last_state_data = None
         
-        has_state = hasattr(loaded_policy, "get_initial_state") and len(loaded_policy.get_initial_state()) > 0
-        self.state_map = {agent: loaded_policy.get_initial_state() if has_state else [] for agent in self.env.agents if agent != "player_0"}
+        self.bots = {}
+        for agent in self.env.agents:
+            if agent != "player_0":
+                agent_idx = int(agent.split("_")[1])
+                self.bots[agent] = ISMCTSBot(agent_id=agent_idx, num_simulations=1000, max_time=1.0)
         
     async def send_json(self, data):
         if self.active_websocket:
@@ -313,36 +277,10 @@ async def game_engine_loop(session_id: str):
                         break
             else:
                 await asyncio.sleep(0.5)
-                has_state = hasattr(loaded_policy, "get_initial_state") and len(loaded_policy.get_initial_state()) > 0
-                if has_state:
-                    action, state_out, info = await asyncio.to_thread(
-                        loaded_policy.compute_single_action,
-                        obs=observation,
-                        state=session.state_map[agent],
-                        explore=True
-                    )
-                    session.state_map[agent] = state_out
-                else:
-                    action = await asyncio.to_thread(
-                        loaded_policy.compute_single_action,
-                        obs=observation,
-                        explore=True
-                    )
+                await asyncio.sleep(0.1)
                 
-                if isinstance(action, tuple):
-                    action = int(action[0])
-                else:
-                    try:
-                        action = int(action)
-                    except TypeError:
-                        action = action.item()
-
-                if action_mask[action] == 0:
-                    valid_actions = [i for i, m in enumerate(action_mask) if m == 1]
-                    if valid_actions:
-                        action = __import__('random').choice(valid_actions)
-                    else:
-                        action = 0
+                bot = session.bots[agent]
+                action = await asyncio.to_thread(bot.compute_action, env)
 
                 log_msg = generate_contextual_log(env, action, agent_idx)
                 was_challenge = (action == 22)
@@ -359,10 +297,6 @@ async def game_engine_loop(session_id: str):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
     await websocket.accept()
-    if loaded_policy is None:
-        await websocket.send_json({"type": "error", "message": "AI policy not loaded"})
-        await websocket.close()
-        return
 
     if not session_id:
         session_id = str(uuid.uuid4())
@@ -382,7 +316,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
             data = await websocket.receive_json()
             if data.get("type") == "start_game":
                 bot_count = int(data.get("bot_count", 2))
-                session = GameSession(bot_count, loaded_policy)
+                session = GameSession(bot_count)
                 session.active_websocket = websocket
                 active_sessions[session_id] = session
                 asyncio.create_task(game_engine_loop(session_id))
@@ -399,3 +333,16 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
             await websocket.close()
         except:
             pass
+
+frontend_dist = os.path.join(base_dir, "frontend", "dist")
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Serve exact file if it exists (e.g. favicon.ico, rules_complete.pdf)
+        file_path = os.path.join(frontend_dist, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # Otherwise serve index.html (SPA routing)
+        return FileResponse(os.path.join(frontend_dist, "index.html"))

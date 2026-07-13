@@ -3,10 +3,7 @@ __pycache__/
 .DS_Store
 checkpoints_rllib/
 checkpoints_lstm/
-checkpoints_lstm_advanced/*
-!checkpoints_lstm_advanced/checkpoint_50000/
-checkpoints_lstm_advanced_v2/*
-!checkpoints_lstm_advanced_v2/checkpoint_50000/
+checkpoints_lstm_advanced*/
 
 # Frontend (Vite)
 logs
@@ -18,7 +15,6 @@ pnpm-debug.log*
 lerna-debug.log*
 
 frontend/node_modules/
-frontend/dist/
 frontend/dist-ssr/
 *.local
 
