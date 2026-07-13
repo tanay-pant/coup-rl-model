@@ -173,13 +173,19 @@ class NeuralMCTSBot:
         discount = 0.99
         steps_up = 0
         
+        winner_reward = env.unwrapped.winner_pot if hasattr(env, 'unwrapped') else 1.0
+        if winner_reward == 0: winner_reward = 1.0
+        
+        alive_players = sum(1 for i, p in env.unwrapped.state.players.items() if p.influence_count > 0) if hasattr(env, 'unwrapped') else 2
+        opponents = max(1, alive_players - 1)
+        
         while curr is not None:
             curr.visits += 1
             discounted_val = discount ** steps_up
             
             if is_terminal:
                 if curr.active_player in winners:
-                    curr.wins += 1.0 * discounted_val
+                    curr.wins += winner_reward * discounted_val
                 else:
                     curr.wins -= 1.0 * discounted_val
             elif env.terminations.get(curr.active_player, False):
@@ -188,7 +194,7 @@ class NeuralMCTSBot:
                 if curr.active_player == evaluator_agent:
                     curr.wins += value
                 else:
-                    curr.wins -= (value / 2.0)
+                    curr.wins -= (value / opponents)
                     
             curr = curr.parent
             steps_up += 1
@@ -265,7 +271,7 @@ class NeuralMCTSBot:
                             p.influence[active_idx].role = card
                             active_idx += 1
             else:
-                claims = sim_env.active_claims[i]
+                claims = sim_env.active_claims[i].copy()
                 proven_not = sim_env.proven_not_to_have[i]
                 
                 for inf in p.influence:

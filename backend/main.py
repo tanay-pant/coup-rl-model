@@ -202,6 +202,12 @@ class GameSession:
         self.active_websocket = None
         self.last_state_data = None
         
+        has_state = hasattr(loaded_policy, "get_initial_state") and len(loaded_policy.get_initial_state()) > 0
+        self.global_lstm_states = {}
+        if has_state:
+            for agent in self.env.agents:
+                self.global_lstm_states[agent] = [torch.tensor([s], dtype=torch.float32) for s in loaded_policy.get_initial_state()]
+        
         self.bots = {}
         for agent in self.env.agents:
             if agent != "player_0":
@@ -294,7 +300,7 @@ async def game_engine_loop(session_id: str):
                 
                 try:
                     bot = session.bots[agent]
-                    action = await asyncio.to_thread(bot.compute_action, env)
+                    action = await asyncio.to_thread(bot.compute_action, env, session.global_lstm_states)
                 except Exception as e:
                     print(f"Error computing action for bot {agent}: {e}")
                     traceback.print_exc()
