@@ -10,7 +10,20 @@ from fastapi.responses import FileResponse
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from envs.coup.coup_env import CoupEnv
-from agents.ismcts import ISMCTSBot
+from agents.neural_mcts import NeuralMCTSBot
+
+import ray
+from ray.rllib.policy.policy import Policy
+from ray.rllib.models import ModelCatalog
+from scripts.train_lstm_advanced import CoupActionMaskLSTM
+
+ray.init(ignore_reinit_error=True)
+ModelCatalog.register_custom_model("coup_mask_lstm", CoupActionMaskLSTM)
+
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+ckpt_v2_path = os.path.join(base_dir, 'checkpoints_lstm_advanced_v2', 'checkpoint_50000')
+policy_dir = os.path.join(ckpt_v2_path, "policies", "main_policy")
+loaded_policy = Policy.from_checkpoint(policy_dir)
 
 app = FastAPI()
 
@@ -29,7 +42,7 @@ agents_dir = os.path.join(base_dir, "agents")
 
 @app.on_event("startup")
 def startup_event():
-    print("Backend started with ISMCTS!")
+    print("Backend started with Neural MCTS!")
 
 @app.get("/health")
 def health_check():
@@ -193,7 +206,7 @@ class GameSession:
         for agent in self.env.agents:
             if agent != "player_0":
                 agent_idx = int(agent.split("_")[1])
-                self.bots[agent] = ISMCTSBot(agent_id=agent_idx, num_simulations=10000, max_time=0.5)
+                self.bots[agent] = NeuralMCTSBot(agent_id=agent_idx, loaded_policy=loaded_policy, num_simulations=50, max_time=0.5)
         
     async def send_json(self, data):
         if self.active_websocket:
@@ -279,8 +292,21 @@ async def game_engine_loop(session_id: str):
                 await asyncio.sleep(0.5)
                 await asyncio.sleep(0.1)
                 
-                bot = session.bots[agent]
-                action = await asyncio.to_thread(bot.compute_action, env)
+                try:
+                    bot = session.bots[agent]
+                    action = await asyncio.to_thread(bot.compute_action, env)
+                except Exception as e:
+                    print(f"Error computing action for bot {agent}: {e}")
+                    traceback.print_exc()
+                    action = None
+                    
+                if action is None:
+                    # Fallback to a random legal move
+                    obs = env.observe(agent)
+                    legal_moves = [i for i, m in enumerate(obs["action_mask"]) if m == 1]
+                    import random
+                    action = random.choice(legal_moves)
+                    print(f"Bot {agent} fell back to random move {action}")
 
                 log_msg = generate_contextual_log(env, action, agent_idx)
                 was_challenge = (action == 22)
