@@ -184,9 +184,9 @@ class NeuralMCTSBot:
                     curr.wins -= 1.0 * discounted_val
             else:
                 if curr.active_player == evaluator_agent:
-                    curr.wins += value * discounted_val
+                    curr.wins += value
                 else:
-                    curr.wins -= (value / 2.0) * discounted_val
+                    curr.wins -= (value / 2.0)
                     
             curr = curr.parent
             steps_up += 1
