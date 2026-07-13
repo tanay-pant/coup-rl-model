@@ -177,7 +177,9 @@ class NeuralMCTSBot:
             curr.visits += 1
             discounted_val = discount ** steps_up
             
-            if is_terminal:
+            if env.terminations.get(curr.active_player, False):
+                curr.wins -= 1.0 * discounted_val
+            elif is_terminal:
                 if curr.active_player in winners:
                     curr.wins += 1.0 * discounted_val
                 else:
@@ -243,10 +245,10 @@ class NeuralMCTSBot:
         unknown_cards = full_deck
         random.shuffle(unknown_cards)
         
-        for i, p in sim_env.state.players.items():
-            if i == observer_idx:
-                continue
-                
+        opponents = [ (i, p) for i, p in sim_env.state.players.items() if i != observer_idx ]
+        random.shuffle(opponents)
+        
+        for i, p in opponents:
             is_opp_exchanging = (sim_env.state.turn.phase == 5 and sim_env.state.turn.active_player == i)
             
             if is_opp_exchanging:
