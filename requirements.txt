@@ -3,7 +3,7 @@ uvicorn[standard]
 websockets
 pettingzoo==1.26.1
 numpy
-ray==2.55.1
+ray[rllib,tune]==2.55.1
 torch==2.12.0
 tensorboardX==2.6.5
 pandas==3.0.3
