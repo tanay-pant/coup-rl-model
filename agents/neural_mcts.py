@@ -177,13 +177,13 @@ class NeuralMCTSBot:
             curr.visits += 1
             discounted_val = discount ** steps_up
             
-            if env.terminations.get(curr.active_player, False):
-                curr.wins -= 1.0 * discounted_val
-            elif is_terminal:
+            if is_terminal:
                 if curr.active_player in winners:
                     curr.wins += 1.0 * discounted_val
                 else:
                     curr.wins -= 1.0 * discounted_val
+            elif env.terminations.get(curr.active_player, False):
+                curr.wins -= 1.0 * discounted_val
             else:
                 if curr.active_player == evaluator_agent:
                     curr.wins += value
