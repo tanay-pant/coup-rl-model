@@ -206,7 +206,7 @@ class GameSession:
         for agent in self.env.agents:
             if agent != "player_0":
                 agent_idx = int(agent.split("_")[1])
-                self.bots[agent] = NeuralMCTSBot(agent_id=agent_idx, loaded_policy=loaded_policy, num_simulations=50, max_time=0.5)
+                self.bots[agent] = NeuralMCTSBot(agent_id=agent_idx, loaded_policy=loaded_policy, num_simulations=600, max_time=0.6)
         
     async def send_json(self, data):
         if self.active_websocket:
