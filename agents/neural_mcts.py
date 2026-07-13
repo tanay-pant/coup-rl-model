@@ -170,21 +170,26 @@ class NeuralMCTSBot:
             winners = self.get_winners(env)
             
         curr = node
+        discount = 0.99
+        steps_up = 0
+        
         while curr is not None:
             curr.visits += 1
+            discounted_val = discount ** steps_up
             
             if is_terminal:
                 if curr.active_player in winners:
-                    curr.wins += 1.0
+                    curr.wins += 1.0 * discounted_val
                 else:
-                    curr.wins -= 1.0
+                    curr.wins -= 1.0 * discounted_val
             else:
                 if curr.active_player == evaluator_agent:
-                    curr.wins += value
+                    curr.wins += value * discounted_val
                 else:
-                    curr.wins -= value / 2.0 
+                    curr.wins -= (value / 2.0) * discounted_val
                     
             curr = curr.parent
+            steps_up += 1
 
     def is_terminal(self, env):
         return all(env.terminations.values())
