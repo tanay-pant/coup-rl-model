@@ -600,10 +600,12 @@ button:disabled {
     margin-bottom: 2px;
   }
   
-  /* Shrink center deck */
-  .deck-visual {
-    width: 50px;
-    height: 75px;
+  /* Hide deck and waiting text on mobile */
+  .deck-tracker {
+    display: none !important;
+  }
+  .waiting-text {
+    display: none !important;
   }
 
   /* Layout flow */
@@ -669,6 +671,7 @@ button:disabled {
   margin: 5px 0;
   position: relative;
   z-index: 100;
+  flex-shrink: 0;
 }
 
 .action-toast {

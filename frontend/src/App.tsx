@@ -519,7 +519,7 @@ function App() {
                   );
                 });
               })()}
-              {gameState.valid_actions.length === 0 && <p style={{fontFamily: 'VT323, monospace'}}>Waiting for opponents...</p>}
+              {gameState.valid_actions.length === 0 && <p className="waiting-text" style={{fontFamily: 'VT323, monospace'}}>Waiting for opponents...</p>}
             </div>
           </div>
         </div>
