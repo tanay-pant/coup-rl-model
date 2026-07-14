@@ -34,7 +34,7 @@ interface GameState {
 
 type AppState = 'connecting' | 'lobby' | 'playing';
 
-const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws';
+const WS_URL = 'wss://ptanay-coup-rl-backend.hf.space/ws';
 
 const toTitleCase = (str: string) => {
   if (!str || str === 'HIDDEN') return 'HIDDEN';
@@ -290,7 +290,7 @@ function App() {
   if (appState === 'lobby') {
     return (
       <>
-        <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 2002, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="top-left-controls">
           <button 
             onClick={toggleMute} 
             onMouseEnter={() => Sounds.hover()}
@@ -378,7 +378,7 @@ function App() {
     <div className="main-wrapper">
       <div className="app-container">
         
-        <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 2002, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="top-left-controls">
           <button 
             onClick={resetGame} 
             onMouseEnter={() => Sounds.hover()}

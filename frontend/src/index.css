@@ -167,6 +167,17 @@ h1, h2, h3, h4 {
   gap: 6px;
 }
 
+/* Top Left Controls */
+.top-left-controls {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2002;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* Modals */
 .modal-overlay {
   position: fixed;
@@ -526,6 +537,7 @@ button:disabled {
 
 /* Mobile Adjustments */
 @media (max-width: 768px) {
+  /* Sidebar */
   .sidebar {
     position: absolute;
     right: 0;
@@ -543,11 +555,115 @@ button:disabled {
     background: rgba(0,0,0,0.5);
     z-index: 1999;
   }
+
+  /* Safe margins */
+  .app-container {
+    padding: 10px;
+    padding-bottom: 20px;
+    gap: 10px;
+  }
+
+  /* Top Left Controls re-positioned as a top header bar */
+  .top-left-controls {
+    position: static;
+    flex-direction: row;
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 100%;
+    margin-bottom: 5px;
+  }
+
+  .top-left-controls button {
+    font-size: 1rem;
+    padding: 6px 10px;
+  }
+
+  /* Opponents Row as 2 columns */
+  .opponents-row {
+    gap: 10px;
+    width: 100%;
+  }
+  .player-box {
+    max-width: none;
+    flex: 1 1 45%;
+    padding: 8px;
+  }
+
+  /* Shrink Player Header Texts */
+  .player-header {
+    font-size: 1.1rem;
+  }
+  .player-cash {
+    font-size: 1.1rem;
+    padding: 2px 6px;
+  }
+
+  /* Shrink game cards */
+  .playing-card {
+    width: 50px;
+    height: 75px;
+    font-size: 0.9rem;
+    padding: 2px;
+  }
+  .card-icon {
+    font-size: 1.5rem;
+    margin-bottom: 2px;
+  }
+  
+  /* Shrink center deck */
+  .deck-visual {
+    width: 50px;
+    height: 75px;
+  }
+
+  /* Layout flow */
   .table-center-area {
     flex-direction: column;
+    gap: 15px;
   }
+
+  /* Action Buttons Stacked */
+  .actions-container {
+    padding: 10px;
+    width: 100%;
+  }
+  .actions-grid {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .action-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px;
+    font-size: 1.1rem;
+  }
+
+  /* My Area */
   .my-area .player-box {
     flex-direction: column;
+    padding: 10px;
+  }
+  .my-area .playing-card {
+    width: 60px;
+    height: 90px;
+    font-size: 1rem;
+  }
+  .my-area .card-icon {
+    font-size: 1.8rem;
+  }
+
+  /* Smaller Toasts */
+  .action-toast {
+    font-size: 0.9rem;
+    padding: 4px 8px;
+  }
+
+  /* Keep modals contained */
+  .modal-content {
+    padding: 15px;
+  }
+  .modal-content h1 {
+    font-size: 2.5rem;
   }
 }
 

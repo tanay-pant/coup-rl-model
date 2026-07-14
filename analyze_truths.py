@@ -1,63 +1,29 @@
-import re
+import sys
 
-def parse_hand(hand_str):
-    roles = []
-    matches = re.findall(r'\[([A-Z]+)', hand_str)
-    for m in matches:
-        roles.append(m)
-    return roles
-
-def analyze_truth():
-    with open('watch_bots_output.txt', 'r') as f:
+def analyze():
+    failed_challenges = 0
+    total_challenges = 0
+    with open("20k_eval_log.txt", "r") as f:
         lines = f.readlines()
         
-    truths = 0
-    lies = 0
-    
-    current_hands = {}
-    
-    # Map actions to required roles
-    action_to_role = {
-        "Tax": "DUKE",
-        "Steal": "CAPTAIN",
-        "Assassinate": "ASSASSIN",
-        "Exchange": "AMBASSADOR",
-        "Block with Duke": "DUKE",
-        "Block with Captain": "CAPTAIN",
-        "Block with Ambassador": "AMBASSADOR",
-        "Block with Contessa": "CONTESSA"
-    }
-    
-    for i, line in enumerate(lines):
-        # Update hands
-        match = re.search(r'AI\s+(\d+) \| \d+ Coins \| Cards: (.*)', line)
-        if match:
-            agent_id = int(match.group(1))
-            hand_str = match.group(2)
-            current_hands[agent_id] = parse_hand(hand_str)
+    for i in range(len(lines)):
+        line = lines[i].strip()
+        if "main_policy) chose: Challenge" in line:
+            total_challenges += 1
+            # Check the next line to see if someone revealed an influence
+            if i + 1 < len(lines):
+                next_line = lines[i+1].strip()
+                if "REVEAL_INFLUENCE" in next_line and "main_policy" not in next_line:
+                    # An opponent was forced to reveal. Did they have the card?
+                    # The env forces a reveal. If they had it, they reveal it. 
+                    # If they didn't have it, they reveal their card (and lose it).
+                    # Actually, if the opponent revealed the card they claimed, the challenger (main_policy) dies!
+                    # But the log just says "Reveal [Role]". We can't immediately tell if they lied or not just from the reveal string unless we look at the action they were challenged on.
+                    # But let's check if main_policy dies right after!
+                    pass
+            # Better check: how often does main_policy challenge and then LOSE an influence?
+            # If main_policy loses an influence, it means it challenged wrong, OR it got challenged.
             
-        # Check claims
-        match_action = re.search(r'>>> AI (\d+) chose: (.*)', line)
-        if match_action:
-            agent_id = int(match_action.group(1))
-            action = match_action.group(2)
-            
-            claimed_role = None
-            for key, role in action_to_role.items():
-                if action.startswith(key):
-                    claimed_role = role
-                    break
-                    
-            if claimed_role:
-                hand = current_hands.get(agent_id, [])
-                if claimed_role in hand:
-                    truths += 1
-                else:
-                    lies += 1
-                    
-    print(f"Total Claims: {truths + lies}")
-    print(f"Truths: {truths} ({(truths/(truths+lies))*100:.1f}%)")
-    print(f"Lies: {lies} ({(lies/(truths+lies))*100:.1f}%)")
+    print(f"Total challenges by main: {total_challenges}")
 
-if __name__ == '__main__':
-    analyze_truth()
+analyze()
