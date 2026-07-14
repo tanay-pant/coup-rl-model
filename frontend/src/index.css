@@ -539,21 +539,10 @@ button:disabled {
 @media (max-width: 768px) {
   /* Sidebar */
   .sidebar {
-    position: absolute;
-    right: 0;
-    top: 0;
-    height: 100%;
-    max-width: 85vw;
+    display: none !important;
   }
   .sidebar-backdrop {
-    display: block;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0,0,0,0.5);
-    z-index: 1999;
+    display: none !important;
   }
 
   /* Safe margins */
@@ -565,7 +554,8 @@ button:disabled {
 
   /* Top Left Controls re-positioned as a top header bar */
   .top-left-controls {
-    position: static;
+    position: relative;
+    z-index: 2002;
     flex-direction: row;
     justify-content: center;
     flex-wrap: wrap;

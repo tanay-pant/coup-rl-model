@@ -76,6 +76,7 @@ const playNoise = (duration: number, vol: number = 0.1, lowpassFreq: number = 10
 export const Sounds = {
   hover: () => {
     // tiny click
+    if (window.innerWidth <= 768) return;
     playTone(800, 'square', 0.05, 0.04);
   },
   duke: () => {
