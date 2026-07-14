@@ -312,7 +312,13 @@ function App() {
             {isMuted ? '🔇 Audio Off' : '🔊 Audio On'}
           </button>
           <button 
-            onClick={() => setShowFullRules(true)} 
+            onClick={() => {
+              if (window.innerWidth <= 768 || ('ontouchstart' in window) || navigator.maxTouchPoints > 0) {
+                window.open('/rules_complete.pdf', '_blank');
+              } else {
+                setShowFullRules(true);
+              }
+            }} 
             onMouseEnter={() => Sounds.hover()}
             style={{
               background: '#ffb703', 
@@ -353,6 +359,9 @@ function App() {
             <div className="modal-content" style={{ width: '90%', height: '90%', padding: '40px 10px 10px 10px', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
               <button onClick={() => setShowFullRules(false)} style={{ position: 'absolute', top: 10, right: 10, zIndex: 3001, background: '#ef476f', color: '#fff', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontFamily: 'VT323' }}>Close</button>
               <iframe src="/rules_complete.pdf" width="100%" height="100%" style={{ border: 'none', borderRadius: '8px', flexGrow: 1 }} />
+              <div style={{marginTop: '10px', fontFamily: 'VT323, monospace'}}>
+                <a href="/rules_complete.pdf" target="_blank" rel="noreferrer" style={{color: '#06d6a0'}}>Can't scroll? Click here to open the PDF in a new tab</a>
+              </div>
             </div>
           </div>
         )}
