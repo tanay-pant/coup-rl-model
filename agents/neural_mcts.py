@@ -15,7 +15,6 @@ class NeuralNode:
         self.wins = 0.0
         self.visits = 0
         self.prior_prob = prior_prob
-        self.untried_moves = None
         self.lstm_states = {} # Map agent_str -> lstm_state
         
 class NeuralMCTSBot:
@@ -95,39 +94,41 @@ class NeuralMCTSBot:
             
             # 2. Select (PUCT)
             node = root
-            while not self.is_terminal(sim_env) and node.untried_moves == [] and node.children != []:
-                node = self.select_child_puct(node)
+            
+            while not self.is_terminal(sim_env):
+                active_agent = sim_env.agent_selection
+                
+                obs = sim_env.observe(active_agent)
+                action_mask = obs["action_mask"]
+                legal_moves = [i for i, m in enumerate(action_mask) if m == 1]
+                
+                valid_children = [c for c in node.children if c.move in legal_moves and c.active_player == active_agent]
+                
+                if len(valid_children) < len(legal_moves):
+                    break
+                    
+                node = self.select_child_puct(node, valid_children)
                 sim_env.step(node.move)
                 self._forward_to_active(sim_env)
                 
             # 3. Expand & Neural Evaluate
             if not self.is_terminal(sim_env):
                 active_agent = sim_env.agent_selection
-                
-                # Get neural evaluation for the active agent
                 current_state = node.lstm_states.get(active_agent)
                 action_probs, value, new_state = self._get_neural_eval(sim_env, current_state)
                 
-                # Expand all children and assign prior probabilities
-                node.untried_moves = []
-                for move, prob in action_probs.items():
-                    child = NeuralNode(parent=node, move=move, active_player=active_agent, prior_prob=prob)
-                    
-                    # Copy over all lstm states from parent
-                    child.lstm_states = {k: [s.clone() for s in v] for k, v in node.lstm_states.items()}
-                    # Update the state for the agent that just acted
-                    child.lstm_states[active_agent] = new_state
-                    
-                    node.children.append(child)
-                    
-                # In PUCT, we don't randomly pick an untried move during expansion.
-                # We immediately evaluate the node and backpropagate the value.
+                existing_moves = {c.move for c in node.children if c.active_player == active_agent}
                 
+                for move, prob in action_probs.items():
+                    if move not in existing_moves:
+                        child = NeuralNode(parent=node, move=move, active_player=active_agent, prior_prob=prob)
+                        child.lstm_states = {k: [s.clone() for s in v] for k, v in node.lstm_states.items()}
+                        child.lstm_states[active_agent] = new_state
+                        node.children.append(child)
             else:
-                # Terminal state, backpropagate objective win/loss
                 winners = self.get_winners(sim_env)
                 value = 1.0 if sim_env.agent_selection in winners else -1.0
-                active_agent = sim_env.agent_selection # For terminal, this might be arbitrary, so rely on winners list
+                active_agent = sim_env.agent_selection
 
             # 4. Backpropagate
             self.backpropagate(node, sim_env, value, active_agent)
@@ -144,13 +145,13 @@ class NeuralMCTSBot:
         best_child = max(root.children, key=lambda c: c.visits)
         return best_child.move
         
-    def select_child_puct(self, node):
+    def select_child_puct(self, node, valid_children):
         best_score = -float('inf')
         best_children = []
         
         sqrt_N = math.sqrt(node.visits)
         
-        for child in node.children:
+        for child in valid_children:
             Q = child.wins / child.visits if child.visits > 0 else 0.0
             U = self.c_puct * child.prior_prob * sqrt_N / (1 + child.visits)
             
@@ -188,7 +189,7 @@ class NeuralMCTSBot:
                     curr.wins += winner_reward * discounted_val
                 else:
                     curr.wins -= 1.0 * discounted_val
-            elif env.terminations.get(curr.active_player, False):
+            elif env.terminations.get(curr.active_player, False) or curr.active_player not in env.agents:
                 curr.wins -= 1.0 * discounted_val
             else:
                 if curr.active_player == evaluator_agent:
@@ -280,13 +281,30 @@ class NeuralMCTSBot:
                         for role_val in range(5):
                             if claims[role_val] == 1 and proven_not[role_val] == 0:
                                 target_role = Role(role_val)
-                                if target_role in unknown_cards:
-                                    inf.role = target_role
-                                    unknown_cards.remove(target_role)
-                                    assigned = True
-                                    claims[role_val] = 0 
-                                    break
+                                num_in_deck = unknown_cards.count(target_role)
+                                total_deck = len(unknown_cards)
+                                
+                                if num_in_deck > 0:
+                                    p_has = num_in_deck / total_deck
+                                    p_not_has = 1.0 - p_has
                                     
+                                    p_claim_given_has = 0.85
+                                    p_claim_given_not_has = 0.20
+                                    
+                                    numerator = p_claim_given_has * p_has
+                                    denominator = numerator + (p_claim_given_not_has * p_not_has)
+                                    
+                                    p_has_given_claim = numerator / denominator if denominator > 0 else 0
+                                    
+                                    if random.random() < p_has_given_claim:
+                                        inf.role = target_role
+                                        unknown_cards.remove(target_role)
+                                        assigned = True
+                                        claims[role_val] = 0
+                                        break
+                                    else:
+                                        claims[role_val] = 0
+                                        # Will fall through to random valid card assignment below
                         if not assigned:
                             valid_cards = [c for c in unknown_cards if proven_not[c.value] == 0]
                             if valid_cards:

@@ -3,6 +3,7 @@ import sys
 import uuid
 import asyncio
 import traceback
+import torch
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
