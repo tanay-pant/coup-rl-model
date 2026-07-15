@@ -36,7 +36,7 @@ Because Coup relies HEAVILY on hidden information (face-down cards), a standard 
 
 ### 3. PUCT Monte Carlo Tree Search
 Using the determinized board state, the bot simulates the game forward hundreds of times per turn. It balances exploring new strategies and exploiting known good paths using the PUCT (Predictor Upper Confidence Bound applied to Trees) algorithm. 
-- The MCTS uses a tuned exploration constant (`c_puct = 2.5`) to ensure the bot doesn't blindly trust its neural network and actively explores aggressive bluffs and challenges. To keep it snappy for the user, searches are limited to 0.6 seconds.
+- The MCTS uses a standard AlphaZero exploration constant (`c_puct = 1.25`) to prevent over-exploring risky, low-probability branches (like random challenges). This ensures the bot relies on the actual proven win-rates of the branches it explores, making it highly stable. To keep it snappy for the user, searches are limited to 0.6 seconds.
 
 ### 4. Depth Discount Penalty
 To solve a notorious problem in MCTS known as "Resignation Behavior" (where a bot cannot mathematically distinguish between an instant loss and a slow loss 10 turns away, leading to suicidal moves), the backpropagation incorporates a depth discount factor (`gamma = 0.99`). 
