@@ -1,0 +1,15 @@
+name: Keep Hugging Face Space Awake
+
+on:
+  schedule:
+    # Run every 12 hours (at 00:00 and 12:00 UTC)
+    - cron: '0 0,12 * * *'
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Hugging Face Space
+        run: curl -s https://ptanay-coup-rl-backend.hf.space/health
