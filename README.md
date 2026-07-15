@@ -4,8 +4,7 @@ Play the classic deduction card game **Coup** against autonomous AI agents train
 
 **🎮 Play it live here:** [coup-rl.vercel.app](https://coup-rl.vercel.app)
 
-*(Insert Gameplay Screenshot Here)*
-<!-- ![Gameplay Screenshot](path/to/image.jpg) -->
+<img width="877" height="739" alt="Screenshot 2026-07-14 at 9 59 36 PM" src="https://github.com/user-attachments/assets/45a6272c-3fd6-4351-adb9-3cda2cdece42" />
 
 ## What is Coup RL?
 This project is a full-stack implementation of the card game Coup, where human players can play directly against AI bots in a web browser. The bots were trained using deep reinforcement learning to bluff, deduce, and strategize.
