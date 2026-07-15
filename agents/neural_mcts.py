@@ -18,7 +18,7 @@ class NeuralNode:
         self.lstm_states = {} # Map agent_str -> lstm_state
         
 class NeuralMCTSBot:
-    def __init__(self, agent_id, loaded_policy, num_simulations=800, max_time=0.8, c_puct=2.5):
+    def __init__(self, agent_id, loaded_policy, num_simulations=800, max_time=0.8, c_puct=1.25):
         self.agent_id = agent_id
         self.loaded_policy = loaded_policy
         self.model = loaded_policy.model if loaded_policy else None
