@@ -18,7 +18,8 @@ api.upload_folder(
         "*.png",
         "get_logs.py",
         "upload_model.py",
-        "upload_to_hf.py"
+        "upload_to_hf.py",
+        "README.md"
     ]
 )
 
