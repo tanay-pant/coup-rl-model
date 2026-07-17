@@ -122,6 +122,7 @@ function App() {
   const [isMuted, setIsMutedState] = useState(false);
   const [showFullRules, setShowFullRules] = useState(false);
   const [showShortcut, setShowShortcut] = useState(false);
+  const [showSiteMechanics, setShowSiteMechanics] = useState(false);
 
   const toggleMute = () => {
     const newMuted = !isMuted;
@@ -333,24 +334,72 @@ function App() {
           >
             Official Coup Rules
           </button>
+          <button 
+            onClick={() => setShowSiteMechanics(true)} 
+            onMouseEnter={() => Sounds.hover()}
+            style={{
+              background: '#4a0072', 
+              color: '#fff', 
+              border: '2px solid #fff', 
+              padding: '5px 10px', 
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontFamily: 'VT323, monospace',
+              fontSize: '1.2rem'
+            }}
+          >
+            How to play
+          </button>
         </div>
         <div className="modal-overlay">
-          <div className="modal-content">
-            <h1>Coup RL</h1>
-            <p>Select number of AI opponents:</p>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', margin: '20px 0' }}>
-              {[2, 3, 4, 5].map(n => (
-                <button 
-                  key={n} 
-                  onClick={() => setBotCount(n)}
-                  onMouseEnter={() => Sounds.hover()}
-                  style={{ backgroundColor: botCount === n ? 'var(--accent)' : '#2b2d42' }}
-                >
-                  {n} Bots
-                </button>
-              ))}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div className="modal-content">
+              <h1>Coup RL</h1>
+              <p>Select number of AI opponents:</p>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', margin: '20px 0' }}>
+                {[2, 3, 4, 5].map(n => (
+                  <button 
+                    key={n} 
+                    onClick={() => setBotCount(n)}
+                    onMouseEnter={() => Sounds.hover()}
+                    style={{ backgroundColor: botCount === n ? 'var(--accent)' : '#2b2d42' }}
+                  >
+                    {n} Bots
+                  </button>
+                ))}
+              </div>
+              <button onClick={startGame} onMouseEnter={() => Sounds.hover()} style={{ fontSize: '1.5rem', padding: '15px 30px' }}>Deal Cards</button>
             </div>
-            <button onClick={startGame} onMouseEnter={() => Sounds.hover()} style={{ fontSize: '1.5rem', padding: '15px 30px' }}>Deal Cards</button>
+            
+            <button
+              onMouseEnter={() => Sounds.hover()}
+              onClick={() => {}}
+              style={{
+                marginTop: '15px',
+                width: '80%',
+                maxWidth: '600px',
+                background: '#4da6ff',
+                color: '#fff',
+                border: '2px solid #fff',
+                padding: '8px 10px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontFamily: 'VT323, monospace',
+                fontSize: '1.2rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+              </svg>
+              Learn how this was built
+            </button>
           </div>
         </div>
 
@@ -361,6 +410,24 @@ function App() {
               <iframe src="/rules_complete.pdf" width="100%" height="100%" style={{ border: 'none', borderRadius: '8px', flexGrow: 1 }} />
               <div style={{marginTop: '10px', fontFamily: 'VT323, monospace'}}>
                 <a href="/rules_complete.pdf" target="_blank" rel="noreferrer" style={{color: '#06d6a0'}}>Can't scroll? Click here to open the PDF in a new tab</a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showSiteMechanics && (
+          <div className="modal-overlay" style={{ zIndex: 3000 }} onClick={() => setShowSiteMechanics(false)}>
+            <div className="modal-content" style={{ width: '90%', maxWidth: '600px', padding: '20px', textAlign: 'left', fontFamily: 'VT323, monospace', fontSize: '1.3rem' }} onClick={e => e.stopPropagation()}>
+              <h2 style={{color: 'var(--accent)', marginTop: 0, textAlign: 'center'}}>How to Play</h2>
+              <p><strong>Rules:</strong> Click "Official Coup Rules" to read the complete rulebook.</p>
+              <p><strong>Site Mechanics:</strong></p>
+              <ul style={{marginLeft: '20px', marginBottom: '20px'}}>
+                <li style={{marginBottom: '5px'}}><strong>Turn Logs:</strong> Open the sidebar on the right to see the full global history of the game.</li>
+                <li style={{marginBottom: '5px'}}><strong>Player Logs:</strong> Hover over any player's card box to see a tooltip of every action they specifically have taken.</li>
+                <li style={{marginBottom: '5px'}}><strong>Restarting:</strong> If you get stuck or want a new game, hit the Reset Game button.</li>
+              </ul>
+              <div style={{textAlign: 'center'}}>
+                <button onClick={() => setShowSiteMechanics(false)} onMouseEnter={() => Sounds.hover()} style={{ background: '#ef476f', padding: '10px 20px', fontSize: '1.2rem' }}>Got it!</button>
               </div>
             </div>
           </div>
