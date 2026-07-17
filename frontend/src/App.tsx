@@ -373,7 +373,7 @@ function App() {
             
             <button
               onMouseEnter={() => Sounds.hover()}
-              onClick={() => {}}
+              onClick={() => window.open('/Writeup.pdf', '_blank')}
               style={{
                 marginTop: '15px',
                 width: '80%',
