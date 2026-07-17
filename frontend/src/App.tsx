@@ -375,7 +375,7 @@ function App() {
               onMouseEnter={() => Sounds.hover()}
               onClick={() => window.open('/Writeup.pdf', '_blank')}
               style={{
-                marginTop: '15px',
+                marginTop: '35px',
                 width: '80%',
                 maxWidth: '600px',
                 background: '#4da6ff',
@@ -507,7 +507,7 @@ function App() {
               fontSize: '1.2rem'
             }}
           >
-            How to play
+            Rules
           </button>
         </div>
 
